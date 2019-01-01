@@ -1,5 +1,5 @@
-# ABOUT #
-GGSurvey Estimator is a pure python toolbox designed to efficiently estimate hydrographic surveys.
+# ABOUT
+## GGSurvey Estimator is a pure python toolbox designed to efficiently estimate hydrographic surveys.
 * It is designed to run within the *toolbox* framework of ArcGISPro 2.1 or higher.
 * It is made available under GPL3 opensource licence
 * It is available for download from https://github.com/pktrigg/GGSurveyEstimator
