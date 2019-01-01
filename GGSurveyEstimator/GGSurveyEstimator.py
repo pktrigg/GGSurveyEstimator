@@ -1,5 +1,5 @@
-#name:
-#created:        October 2018
+#name:			GGSurveyEstimator
+#created:       October 2018
 #by:            paul.kennedy@guardiangeomatics.com
 #description:   python module to estimate a marine survey duration from a user selected polygon
 #notes:            See main at end of script for example how to use this
@@ -100,10 +100,10 @@ class SurveyEstimatorTool(object):
         param7 = arcpy.Parameter(
             displayName="GEBCO Bathymetry (GEBCO_2014_1D.nc)",
             name="GEBCOBathy",
-            datatype="Field",
+            datatype="DEFile",
             parameterType="Optional",
             direction="Input")
-        param7.value = "C:\development\python\ArcGISPro\EstimatorGEBCO_2014_1D.nc"
+        param7.value = r"C:\development\python\ArcGISPro\Estimator\GEBCO_2014_1D.nc"
 
         params = [param0, param1, param2, param3, param4, param5, param6, param7]
 
@@ -117,8 +117,7 @@ class SurveyEstimatorTool(object):
         """Modify the values and properties of parameters before internal
         validation is performed.  This method is called whenever a parameter
         has been changed."""
-        #arcpy.AddMessage ("Mean Depth :xxx")
-
+        arcpy.AddMessage ("Parameter Changed")
         return
 
     def updateMessages(self, parameters):
@@ -173,14 +172,14 @@ class surveyEstimator:
         #test to ensure a GDB is attached to the project
         if not self.checkGDBExists():
             return 1
-        #testto ensure the OUTPUT polygon featureclass exists + create if not
+        #test to ensure the OUTPUT polygon featureclass exists + create if not
         if not self.checkFCExists(FCName, spatialReference):
             return 1
 
-        TMPName = "TempLines" #Temprary featureclass for the computation loops
+        TMPName = "TempLines" #Temporary featureclass for the unclipped survey line computation loops. This gets cleared out at the end.
         self.checkFCExists(TMPName, spatialReference)
 
-        ClippedName = "TempClipped" #Temprary featureclass for clipping results into
+        ClippedName = "TempClipped" #Temporary featureclass for clipping results. This gets compied into the SSDM layer at the end and then cleared out
         self.checkFCExists(ClippedName, spatialReference)
 
         count = 0
@@ -201,9 +200,6 @@ class surveyEstimator:
             #remember the polygon we will be using as the clipper
             polyClipper = row
 
-            #spatialReference = row[0].spatialReference #works!!
-            #arcpy.AddMessage("SR %s" % (spatialReference.name))
-
             #get the centre of the polygon...
             polygonCentroidX = row[0].centroid.X
             polygonCentroidY = row[0].centroid.Y
@@ -217,7 +213,6 @@ class surveyEstimator:
             if polygonIsGeographic:
                 arcpy.AddMessage ("Layer is Geographicals...")
                 numlines = math.ceil(polygonDiagonalLength / geodetic.metresToDegrees(float(lineSpacing)))
-                #polygonDiagonalLength = geodetic.degreesToMetres(polygonDiagonalLength)
             else:
                 arcpy.AddMessage ("Layer is Grid NOT Geographicals...")
                 numlines = math.ceil(polygonDiagonalLength / float(lineSpacing))
