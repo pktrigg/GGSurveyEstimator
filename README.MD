@@ -52,6 +52,16 @@ https://www.gebco.net/data_and_products/gridded_bathymetry_data/gebco_30_second_
 * Once you have downloaded the file, place it into a folder such as c:\projects\gebco, and provide the full path and filename into the text box of the dialog.  The tool can then open the file, and read the depths from the file.
 The tool will not attempt to read the entire GEBCO database.  It will compute the bounding box of the user selected polygon, and extract the GEBCO bathymetry requied for the estimation process.  The extracted bathymetry will be added to a SSDM-compliant layer for you, so you can better understand the survey area under consideration.
 
+To rapidly access the GEBCO dataset, we have developed a pure python script which accesses a subset of the bathymetry.  The user specifies a bounding boax, and the data is extracted at full or decimated resolution, as required.  While this module is called from the GGSurveyEstimator toolbox, it is very handy as a standalone utility.  You can run the command in standalone mode like this...
+
+**python Gebco1dextractor.py -i GEBCO_2014_1D.nc -o pk.txt -s 20 -x1 110 -y1 -30 -x2 130 -y2 -50**
+**depths records loaded: 14641**
+**Writing data to:pk.txt...**
+
+**Note: For the GEBCO Bathymetry to be accessible, you MUST download it from the internet**
+
+
+
 
 
 
@@ -82,3 +92,6 @@ The tool will not attempt to read the entire GEBCO database.  It will compute th
 * Basic script which runs inside ArcGISPro
 * if there is a polygon, find the CRS, extents, and long axis, report this
 * compute the lines based ont the long axis and the polygon
+
+Here is an example of the extracted bathymetry in Google Earth.  As you can see, it is a perfect fit against the underlying topography.
+![GitHub Logo](/images/GGSurveyEstimator5.png)
