@@ -4,7 +4,8 @@
 * It is made available under GPL3 opensource licence
 * It is available for download from https://github.com/pktrigg/GGSurveyEstimator
 
-![GitHub Logo](/images/GGSurveyEstimator1.png)
+![GitHub Logo](/images/GGSurveyEstimator3.png)
+
 
 * The basic flow is as follows:
   * User need to have a featureclass (a layer in the map), which contains polygons to be estimated.  This is typically in the form of a geodatabase or shapefile.  The area need to be a polgon, not a polyline.  The featureclass can be either geographicals or grid.  The tool will interrogate the spatial reference of the featureclass and determine what it is and handle it either way.
@@ -19,6 +20,8 @@
   * Enter the duration of the line turn in hours.  This is used in the survey duration computations report.
   * Press # Run # to run the estimator
   * The most common problem is you have not selected a polygon in the map, or have not selected the correct layer in the dialog.  The tool will warn you if you have made this mistake.
+  ![GitHub Logo](/images/GGSurveyEstimator1.png)
+
   * The tool will display some progress in the standard geoprosessing interface, which you can expand as needed.
   * Using the requested survey line heading, the tool will initially compute a centreline which runs directly through the centroid of the polygon.  It then uses the survey line spacing to compute a series of offset lines to port and starboard of the centreline.  Offset lines are computed parallel to the centreline, using the requested survey line heading. This technique ensures you will ALWAYS get at least 1 line through your polygon. A critical part of the computation process is the clipping of lines at the exact intersection of the line with the user-selected polygon.  This complex calculation is done for you on every survey line.
   Witht eprimary survey lines complete, the tool then computes cross lines at the user requested cross line multiplier.  This is a multiplier of the primary line spacing, and by default is the standard 15-times primary line spacing.  If you do not want crosslines, make this parameter zero.
