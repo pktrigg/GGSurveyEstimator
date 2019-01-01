@@ -30,7 +30,10 @@
   * Each survey line in the layer has a series of fields as determined by the SSDM schema.  A bunch of these fields will be filled out for you
   * On competion of the process, the results will be saved to a CSV file in the **parent folder** of the geodatabase location for you, and automatically opened in Excel. You can then complete the estimation process.
 
+# Reporting
+The tool makes reports available in the user interface and as an Excel sheet...
 ![GitHub Logo](/images/GGSurveyEstimator2.png)
+![GitHub Logo](/images/GGSurveyEstimator4.png)
 
 
 # Advanced users
