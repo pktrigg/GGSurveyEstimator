@@ -1,8 +1,8 @@
 #name:
-#created:	    October 2018
-#by:			paul.kennedy@guardiangeomatics.com
+#created:        October 2018
+#by:            paul.kennedy@guardiangeomatics.com
 #description:   python module to estimate a marine survey duration from a user selected polygon
-#notes:		    See main at end of script for example how to use this
+#notes:            See main at end of script for example how to use this
 #designed for ArcGISPro 2.2.3
 
 # See readme.md for more details
@@ -129,15 +129,14 @@ class SurveyEstimatorTool(object):
     def execute(self, parameters, messages):
         """Compute a survey line plan from a selected polygon in the input featureclass."""
 
-        arcpy.AddMessage ("########################GG Survey Estimator : %s ###########################" % (VERSION))
+        arcpy.AddMessage ("#####GG Survey Estimator : %s #####" % (VERSION))
         sse = surveyEstimator()
         sse.compute(parameters)
-        # sse.addToMap()
-        # sse.refreshMap()
+
         return
 
 class surveyEstimator:
-
+    '''Class to estimate hydrogrpahic survey durations using a polygon and some user specified criteria.  Output is a line plan and csv sheet ready for Excel.'''
     def __init__(self):
         return
 
@@ -153,6 +152,8 @@ class surveyEstimator:
         linePrefix              = parameters[3].valueAsText
         vesselSpeedInKnots      = float(parameters[4].valueAsText)
         turnDuration            = float(parameters[5].valueAsText)
+        crossLineMultiplier     = float(parameters[6].valueAsText)
+        gebcofileName           = parameters[7].valueAsText
         polygonIsGeographic     = False #used to manage both grid and geographical polygons, so we can compute both with ease.
         projectName             = arcpy.env.workspace
         FCName                  = "Proposed_Survey_Run_Lines" #Official SSDM V2 FC name
@@ -197,7 +198,7 @@ class surveyEstimator:
             arcpy.AddMessage("X:%.2f Y:%.2f" % (row[0].centroid.X, row[0].centroid.Y))
             arcpy.AddMessage("ExtentXMin:%.2f ExtentXMax:%.2f" % (row[0].extent.XMin, row[0].extent.XMax))
 
-            #remember the polygon we will be using as rthe clipper
+            #remember the polygon we will be using as the clipper
             polyClipper = row
 
             #spatialReference = row[0].spatialReference #works!!
@@ -226,39 +227,14 @@ class surveyEstimator:
             # clear the previous survey lines with the same prefix, so we do not double up
             self.deleteSurveyLines(FCName, clipLayerName, linePrefix)
 
-            lineCount = 0
-            #do the CENTRELINE
-            x2, y2, x3, y3 = self.CalcLineFromPoint(polygonCentroidX, polygonCentroidY, lineHeading, polygonDiagonalLength, polygonIsGeographic)
-            lineName = linePrefix + "_Centreline"
-            polyLine = self.addPolyline(x2, y2, x3, y3, TMPName, spatialReference, linePrefix, lineName, float(lineHeading), projectName, lineSpacing)
-            arcpy.AddMessage ("Centreline created")
-            lineCount += 1
+            # now run the computation on the PRIMARY lines...
+            arcpy.AddMessage ("Computing Primary Survey Lines...")
+            self.computeSurveyLines (polygonCentroidX, polygonCentroidY, lineSpacing, lineHeading, polygonDiagonalLength, polygonIsGeographic, spatialReference, linePrefix, projectName, TMPName)
 
-            #do the Starboard Lines
-            offset = lineSpacing
-            while (offset < polygonDiagonalLength):
-                newCentreX, newCentreY = self.CalcGridCoord(polygonCentroidX, polygonCentroidY, lineHeading - 90.0, offset)
-                x2, y2, x3, y3 = self.CalcLineFromPoint(newCentreX, newCentreY, lineHeading, polygonDiagonalLength, polygonIsGeographic)
-                lineName = linePrefix + "_S" + str("%.1f" %(offset))
-                polyLine = self.addPolyline(x2, y2, x3, y3, TMPName, spatialReference, linePrefix, lineName, float(lineHeading), projectName, lineSpacing)
-                offset = offset + lineSpacing
-                lineCount += 1
-                if lineCount % 10 == 0:
-                    arcpy.AddMessage ("Creating line: %d" % (lineCount))
-
-            #do the PORT Lines
-            offset = -lineSpacing
-            while (offset > -polygonDiagonalLength):
-                newCentreX, newCentreY = self.CalcGridCoord(polygonCentroidX, polygonCentroidY, lineHeading - 90.0, offset)
-                x2, y2, x3, y3 = self.CalcLineFromPoint(newCentreX, newCentreY, lineHeading, polygonDiagonalLength, polygonIsGeographic)
-                lineName = linePrefix + "_P" + str("%.1f" %(offset))
-                polyLine = self.addPolyline(x2, y2, x3, y3, TMPName, spatialReference, linePrefix, lineName, float(lineHeading), projectName, lineSpacing)
-                offset = offset - lineSpacing
-                lineCount += 1
-                if lineCount % 10 == 0:
-                    arcpy.AddMessage ("Creating line: %d" % (lineCount))
-
-            arcpy.AddMessage ("%d Lines created" % (lineCount))
+            # now run the computation on the CROSS lines...
+            if crossLineMultiplier > 0:
+                arcpy.AddMessage ("Computing Cross Lines...")
+                self.computeSurveyLines (polygonCentroidX, polygonCentroidY, lineSpacing*crossLineMultiplier, lineHeading+90, polygonDiagonalLength, polygonIsGeographic, spatialReference, linePrefix+"_X", projectName, TMPName)
 
             #clip the lines from the TMP to the Clipped FC
             arcpy.AddMessage ("Clipping to polygon...")
@@ -289,8 +265,44 @@ class surveyEstimator:
                 aprxMap.addDataFromPath(lyrTest)
 
             #now export the features to a CSV...
-            self.FC2CSV(FCName, vesselSpeedInKnots, turnDuration, lineSpacing)
+            self.FC2CSV(FCName, vesselSpeedInKnots, turnDuration, lineSpacing, polygonIsGeographic)
         return
+
+    def computeSurveyLines (self, polygonCentroidX, polygonCentroidY, lineSpacing, lineHeading, polygonDiagonalLength, polygonIsGeographic, spatialReference, linePrefix, projectName, FCName):
+        ''' compute a survey line plan and add it to the featureclass'''
+        lineCount = 0
+        #do the CENTRELINE
+        x2, y2, x3, y3 = self.CalcLineFromPoint(polygonCentroidX, polygonCentroidY, lineHeading, polygonDiagonalLength, polygonIsGeographic)
+        lineName = linePrefix + "_Centreline"
+        polyLine = self.addPolyline(x2, y2, x3, y3, FCName, spatialReference, linePrefix, lineName, float(lineHeading), projectName, lineSpacing)
+        arcpy.AddMessage ("Centreline created")
+        lineCount += 1
+
+        #do the Starboard Lines
+        offset = lineSpacing
+        while (offset < polygonDiagonalLength):
+            newCentreX, newCentreY = self.CalcGridCoord(polygonCentroidX, polygonCentroidY, lineHeading - 90.0, offset)
+            x2, y2, x3, y3 = self.CalcLineFromPoint(newCentreX, newCentreY, lineHeading, polygonDiagonalLength, polygonIsGeographic)
+            lineName = linePrefix + "_S" + str("%.1f" %(offset))
+            polyLine = self.addPolyline(x2, y2, x3, y3, FCName, spatialReference, linePrefix, lineName, float(lineHeading), projectName, lineSpacing)
+            offset = offset + lineSpacing
+            lineCount += 1
+            if lineCount % 10 == 0:
+                arcpy.AddMessage ("Creating line: %d" % (lineCount))
+
+        #do the PORT Lines
+        offset = -lineSpacing
+        while (offset > -polygonDiagonalLength):
+            newCentreX, newCentreY = self.CalcGridCoord(polygonCentroidX, polygonCentroidY, lineHeading - 90.0, offset)
+            x2, y2, x3, y3 = self.CalcLineFromPoint(newCentreX, newCentreY, lineHeading, polygonDiagonalLength, polygonIsGeographic)
+            lineName = linePrefix + "_P" + str("%.1f" %(offset))
+            polyLine = self.addPolyline(x2, y2, x3, y3, FCName, spatialReference, linePrefix, lineName, float(lineHeading), projectName, lineSpacing)
+            offset = offset - lineSpacing
+            lineCount += 1
+            if lineCount % 10 == 0:
+                arcpy.AddMessage ("Creating line: %d" % (lineCount))
+
+        arcpy.AddMessage ("%d Lines created" % (lineCount))
 
     def checkGDBExists(self):
         # check the output FGDB is in place
@@ -391,7 +403,7 @@ class surveyEstimator:
     def get_username(self):
         return os.getenv('username')
 
-    def FC2CSV(self, FCName, vesselSpeedInKnots, turnDuration, lineSpacing):
+    def FC2CSV(self, FCName, vesselSpeedInKnots, turnDuration, lineSpacing, polygonIsGeographic):
         '''read through the featureclass and convert the file to a CSV so we can open it in Excel and complete the survey estimation process'''
         csvName = os.path.dirname(os.path.dirname(arcpy.env.workspace)) + "\\" + FCName + ".csv"
         csvName = createOutputFileName(csvName)
@@ -400,16 +412,31 @@ class surveyEstimator:
         msg = "LineName,LineSpacing,StartX,StartY,EndX,EndY,Length(m),Heading,Speed(kts),Speed(m/s),Duration(h),TurnDuration(h),TotalDuration(h)\n"
         file.write(msg)
 
+        entireSurveyDuration = 0
+        entireSurveyLineLength = 0
         speed = vesselSpeedInKnots *(1852/3600) #convert from knots to metres/second
         sCursor = arcpy.da.SearchCursor(FCName, ["SHAPE@", "LINE_NAME", "LINE_DIRECTION", "LAYER"])
         for row in sCursor:
             duration = float(row[0].length) / speed / 3600
             totalDuration = duration + turnDuration
+            entireSurveyDuration += totalDuration
+            entireSurveyLineLength += row[0].length
             lineSpacing = float(row[3])
             msg = str("%s,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f\n" % (row[1], lineSpacing, row[0].firstPoint.X, row[0].firstPoint.Y, row[0].lastPoint.X, row[0].lastPoint.Y, row[0].length, row[2], vesselSpeedInKnots, vesselSpeedInKnots*(1852/3600), duration, turnDuration, totalDuration))
             file.write(msg)
 
         file.close()
+
+        #report the entire survey stats...
+        arcpy.AddMessage("Entire Survey duration: %.2f Hours" % (entireSurveyDuration))
+        arcpy.AddMessage("Entire Survey duration: %.2f Days" % (entireSurveyDuration/24))
+
+        if polygonIsGeographic:
+            entireSurveyLineLength = geodetic.degreesToMetres(entireSurveyLineLength)
+
+        arcpy.AddMessage("Entire Survey Line Length : %.2f KM" % (entireSurveyLineLength/1000))
+
+
         #now open the file for the user...
         os.startfile('"' + csvName + '"')
 
@@ -425,28 +452,28 @@ class surveyEstimator:
 
 ###############################################################################
 def createOutputFileName(path, ext=""):
-	'''Create a valid output filename. if the name of the file already exists the file name is auto-incremented.'''
-	path = os.path.expanduser(path)
+    '''Create a valid output filename. if the name of the file already exists the file name is auto-incremented.'''
+    path = os.path.expanduser(path)
 
-	if not os.path.exists(os.path.dirname(path)):
-		os.makedirs(os.path.dirname(path))
+    if not os.path.exists(os.path.dirname(path)):
+        os.makedirs(os.path.dirname(path))
 
-	if not os.path.exists(path):
-		return path
+    if not os.path.exists(path):
+        return path
 
-	if len(ext) == 0:
-		root, ext = os.path.splitext(os.path.expanduser(path))
-	else:
-		# use the user supplied extension
-		root, ext2 = os.path.splitext(os.path.expanduser(path))
+    if len(ext) == 0:
+        root, ext = os.path.splitext(os.path.expanduser(path))
+    else:
+        # use the user supplied extension
+        root, ext2 = os.path.splitext(os.path.expanduser(path))
 
-	dir		= os.path.dirname(root)
-	fname	= os.path.basename(root)
-	candidate = fname+ext
-	index	= 1
-	ls		= set(os.listdir(dir))
-	while candidate in ls:
-			candidate = "{}_{}{}".format(fname,index,ext)
-			index	+= 1
+    dir        = os.path.dirname(root)
+    fname    = os.path.basename(root)
+    candidate = fname+ext
+    index    = 1
+    ls        = set(os.listdir(dir))
+    while candidate in ls:
+            candidate = "{}_{}{}".format(fname,index,ext)
+            index    += 1
 
-	return os.path.join(dir, candidate)
+    return os.path.join(dir, candidate)
