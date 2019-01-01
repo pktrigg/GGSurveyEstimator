@@ -50,7 +50,7 @@ class SurveyEstimatorTool(object):
         param0.value = "SelectBoundaryPolygonLayer..."
 
         param1 = arcpy.Parameter(
-            displayName="Line Spacing (m) (e.g. Spacing = Depth*MBESCoverage)",
+            displayName="Primary Line Spacing (m) (e.g. Spacing = Depth*MBESCoverage, or 0 to compute depths based on GEBCO bathymetry)",
             name="lineSpacing",
             datatype="Field",
             parameterType="Required",
@@ -58,7 +58,7 @@ class SurveyEstimatorTool(object):
         param1.value = "1000"
 
         param2 = arcpy.Parameter(
-            displayName="Heading (deg)",
+            displayName="Primary Survey Line Heading (deg)",
             name="lineHeading",
             datatype="Field",
             parameterType="Required",
@@ -89,16 +89,23 @@ class SurveyEstimatorTool(object):
             direction="Input")
         param5.value = "0.25"
 
-        # param4 = arcpy.Parameter(
-        #     displayName="Output",
-        #     name="out_features",
-        #     datatype="GPFeatureLayer",
-        #     parameterType="Required",
-        #     direction="Output")
-        # param4.value = "results"
-        # params = [param0, param1, param2, param3, param4]
+        param6 = arcpy.Parameter(
+            displayName="CrossLine Multiplier (e.g. 15 times primary line spacing, 0 for no crosslines)",
+            name="crossLineMultiplier",
+            datatype="Field",
+            parameterType="Required",
+            direction="Input")
+        param6.value = "15"
 
-        params = [param0, param1, param2, param3, param4, param5]
+        param7 = arcpy.Parameter(
+            displayName="GEBCO Bathymetry (GEBCO_2014_1D.nc)",
+            name="GEBCOBathy",
+            datatype="Field",
+            parameterType="Optional",
+            direction="Input")
+        param7.value = "C:\development\python\ArcGISPro\EstimatorGEBCO_2014_1D.nc"
+
+        params = [param0, param1, param2, param3, param4, param5, param6, param7]
 
         return params
 
