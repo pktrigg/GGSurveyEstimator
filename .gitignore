@@ -105,3 +105,4 @@ venv.bak/
 
 # NETCdf files (because they are large)
 *.nc
+

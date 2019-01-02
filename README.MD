@@ -66,12 +66,14 @@ To rapidly access the GEBCO dataset, we have developed a pure python script whic
 
 
 # TODO #
-* add UI for xlines to be computed with default as 15 times primary line spacing
-* add UI to specify GEBCO global bathy database.
-* add to github
-* auto compute the heading based ont the longest vector in the polygon. trigger this if the user enters -1 for the heading.
-
+* auto compute the heading based on the longest vector in the polygon. trigger this if the user enters -1 for the heading.
+* if line spacing is set to 0, extract the GEBCO bathymetry and drop it into an SSDM
 # DONE
+* add UI to specify GEBCO global bathy database.
+* create a module to read the GEBCO bathymetry 1D NetCDF file format
+* test extracted bathymetry to ensure it is correctly goereferenced
+* add to github
+* add UI for xlines to be computed with default as 15 times primary line spacing
 * output featureclass is now the SSDM standard proposed survey lines FC
 * sort out support for both geographical and grid input coordinate systems
 * add UI for Projectname
