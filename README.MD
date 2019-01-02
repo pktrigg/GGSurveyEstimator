@@ -1,6 +1,6 @@
 # ABOUT
 ## GGSurvey Estimator is a pure python toolbox designed to efficiently estimate hydrographic surveys.
-* It is designed to run within the *toolbox* framework of ArcGISPro 2.1 or higher.
+* It is designed to run within the *toolbox* framework of ArcGISPro 2.2.4 or higher.
 * It is made available under GPL3 opensource licence
 * It is available for download from https://github.com/pktrigg/GGSurveyEstimator
 
@@ -66,9 +66,10 @@ To rapidly access the GEBCO dataset, we have developed a pure python script whic
 
 
 # TODO #
-* auto compute the heading based on the longest vector in the polygon. trigger this if the user enters -1 for the heading.
-* if line spacing is set to 0, extract the GEBCO bathymetry and drop it into an SSDM
+* figure out a way for the user to set the coverage rate of the multibeam so we can auto compute the line spacing from the sounding grid.
 # DONE
+* if line spacing is set to -1, compute the mean depth from the standard SSDM SURVEY_SOUNDING_GRID and use this as the line spacing
+* auto compute the heading based on the longest vector in the polygon. trigger this if the user enters -1 for the heading.
 * add UI to specify GEBCO global bathy database.
 * create a module to read the GEBCO bathymetry 1D NetCDF file format
 * test extracted bathymetry to ensure it is correctly goereferenced

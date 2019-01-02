@@ -1,9 +1,8 @@
 #name:			GGSurveyEstimator
-#created:	   October 2018
+#created:	    October 2018
 #by:			paul.kennedy@guardiangeomatics.com
 #description:   python module to estimate a marine survey duration from a user selected polygon
-#notes:			See main at end of script for example how to use this
-#designed for ArcGISPro 2.2.3
+#designed for:  ArcGISPro 2.2.4
 
 # See readme.md for more details
 
@@ -20,7 +19,7 @@ from datetime import datetime
 from datetime import timedelta
 import os
 
-VERSION = "3.0"
+VERSION = "4.0"
 
 class Toolbox(object):
 	def __init__(self):
@@ -34,15 +33,15 @@ class Toolbox(object):
 class SurveyEstimatorTool(object):
 	def __init__(self):
 		"""Define the tool (tool name is the name of the class)."""
-		self.label = "Guardian Geomatics Survey Estimator"
-		self.description = "Compute a survey line plan from a selected polygon"
+		self.label = "GG Hydrographic Survey Estimator"
+		self.description = "Compute a hydrographic survey line plan within a selected polygon"
 		self.canRunInBackground = False
 
 	def getParameterInfo(self):
 		"""Define parameter definitions"""
 		# First parameter
 		param0 = arcpy.Parameter(
-			displayName="Feature Layer to Estimate",
+			displayName="Feature Layer to Estimate. This is the layer containing the user selected polygon for estimation, and is critical to the computation.",
 			name="in_features",
 			datatype="GPFeatureLayer",
 			parameterType="Required",
@@ -50,62 +49,62 @@ class SurveyEstimatorTool(object):
 		param0.value = "SelectBoundaryPolygonLayer..."
 
 		param1 = arcpy.Parameter(
-			displayName="Primary Line Spacing (m) (e.g. Spacing = Depth*MBESCoverage, or 0 to compute depths based on GEBCO bathymetry)",
+			displayName="Primary Line Spacing (m) (e.g. Spacing = Depth*MBESCoverage, or -1 to compute depths based on SSDM Survey_Sounding_Grid Feature Class)",
 			name="lineSpacing",
 			datatype="Field",
 			parameterType="Required",
 			direction="Input")
-		param1.value = "1000"
+		param1.value = "-1"
 
-		param2 = arcpy.Parameter(
+		param2 = arcpy.Parameter( 
+			displayName="MBESCoverageMultiplier (only used when autocomputing the line spacing with the Survey_Sounding_Grid, if manually setting line spacing, ignore this. Use GGGebcoExtractor to create a sounding grid!)",
+			name="MBESCoverageMultiplier",
+			datatype="Field",
+			parameterType="Required",
+			direction="Input")
+		param2.value = "4.0"
+
+		param3 = arcpy.Parameter(
 			displayName="Primary Survey Line Heading (deg)",
 			name="lineHeading",
 			datatype="Field",
 			parameterType="Required",
 			direction="Input")
-		param2.value = "0"
+		param3.value = "-1"
 
-		param3 = arcpy.Parameter(
-			displayName="LinePrefix",
+		param4 = arcpy.Parameter(
+			displayName="LinePrefix.  This is used to populate SSDM Tables, and used to identify and remove duplicate computations",
 			name="linePrefix",
 			datatype="Field",
 			parameterType="Required",
 			direction="Input")
-		param3.value = "MainLine"
+		param4.value = "MainLine"
 
-		param4 = arcpy.Parameter(
-			displayName="Vessel Speed in Knots",
+		param5 = arcpy.Parameter(
+			displayName="Vessel Speed in Knots.  This is used to compute the duration of the survey.",
 			name="vesselSpeedInKnots",
 			datatype="Field",
 			parameterType="Required",
 			direction="Input")
-		param4.value = "4.5"
+		param5.value = "4.5"
 
-		param5 = arcpy.Parameter(
-			displayName="Turn Duration (hours)",
+		param6 = arcpy.Parameter(
+			displayName="Turn Duration (hours). This is used to compute the duration of the survey",
 			name="turnDuration",
 			datatype="Field",
 			parameterType="Required",
 			direction="Input")
-		param5.value = "0.25"
+		param6.value = "0.25"
 
-		param6 = arcpy.Parameter(
-			displayName="CrossLine Multiplier (e.g. 15 times primary line spacing, 0 for no crosslines)",
+		param7 = arcpy.Parameter(
+			displayName="CrossLine Multiplier (e.g. 15 times primary line spacing, 0 for no crosslines) See https://github.com/pktrigg/GGSurveyEstimator",
 			name="crossLineMultiplier",
 			datatype="Field",
 			parameterType="Required",
 			direction="Input")
-		param6.value = "15"
+		param7.value = "15"
 
-		# param7 = arcpy.Parameter(
-		# 	displayName="GEBCO Bathymetry (GEBCO_2014_1D.nc)",
-		# 	name="GEBCOBathy",
-		# 	datatype="DEFile",
-		# 	parameterType="Optional",
-		# 	direction="Input")
-		# param7.value = r"C:\development\python\ArcGISPro\GGSurveyEstimator\GGSurveyEstimator\GEBCO_2014_1D.nc"
-
-		params = [param0, param1, param2, param3, param4, param5, param6]
+		params = [param0, param1, param2, param3, param4, param5, param6, param7]
 
 		return params
 
@@ -145,17 +144,34 @@ class surveyEstimator:
 	def compute(self, parameters):
 		'''computes a survey line plans using user-specified parameters and a user selected polygon in ArcGISPro'''
 
-		clipLayerName		   = parameters[0].valueAsText
-		lineSpacing			 = float(parameters[1].valueAsText)
-		lineHeading			 = float(parameters[2].valueAsText)
-		linePrefix			  = parameters[3].valueAsText
-		vesselSpeedInKnots	  = float(parameters[4].valueAsText)
-		turnDuration			= float(parameters[5].valueAsText)
-		crossLineMultiplier	 = float(parameters[6].valueAsText)
-		# gebcofileName		   = parameters[7].valueAsText
-		polygonIsGeographic	 = False #used to manage both grid and geographical polygons, so we can compute both with ease.
-		projectName			 = arcpy.env.workspace
-		FCName				  = "Proposed_Survey_Run_Lines" #Official SSDM V2 FC name
+		clipLayerName			= parameters[0].valueAsText
+		lineSpacing				= float(parameters[1].valueAsText)
+		MBESCoverageMultiplier	= float(parameters[2].valueAsText)
+		lineHeading				= float(parameters[3].valueAsText)
+		linePrefix				= parameters[4].valueAsText
+		vesselSpeedInKnots		= float(parameters[5].valueAsText)
+		turnDuration			= float(parameters[6].valueAsText)
+		crossLineMultiplier		= float(parameters[7].valueAsText)
+		polygonIsGeographic		= False #used to manage both grid and geographical polygons, so we can compute both with ease.
+		projectName				= arcpy.env.workspace
+		FCName					= "Proposed_Survey_Run_Lines" #Official SSDM V2 FC name
+
+		aprx = arcpy.mp.ArcGISProject("current")
+		aprxMap = aprx.listMaps("Map")[0]
+		for lyr in aprxMap.listLayers("*"):
+			if lyr.getSelectionSet():
+				arcpy.AddMessage ("found layerpkpk %s " % (lyr.name))				
+				for sel in lyr.getSelectionSet():
+					fname = 'FID'
+					fields = arcpy.ListFields(lyr.name)
+					for field in fields:
+						if field.name == "OBJECTID":
+							fname = 'OBJECTID'
+					with arcpy.da.SearchCursor(lyr, [fname]) as cursor:  
+						for row in cursor:  
+							print(row[0])
+
+
 
 		# show the user something is happening...
 		arcpy.AddMessage ("WorkingFolder  : %s " % (arcpy.env.workspace))
@@ -200,23 +216,32 @@ class surveyEstimator:
 			#remember the polygon we will be using as the clipper
 			polyClipper = row
 
+			if lineHeading == -1:
+				lineHeading = self.computeOptimalHeading(polyClipper, polygonIsGeographic)
+
+			if lineSpacing == -1:
+				#MBESCoverageMultiplier = 10 #pkpk
+				lineSpacing = self.computeMeanDepthFromSoundingGrid("Survey_Sounding_Grid", spatialReference, polyClipper, MBESCoverageMultiplier)
+
 			#get the centre of the polygon...
 			polygonCentroidX = row[0].centroid.X
 			polygonCentroidY = row[0].centroid.Y
 
 			#compute the long axis...
-			polygonDiagonalLength = math.hypot(row[0].extent.XMax - row[0].extent.XMin, row[0].extent.YMax - row[0].extent.YMin )
+			polygonDiagonalLength = math.hypot(row[0].extent.XMax - row[0].extent.XMin, row[0].extent.YMax - row[0].extent.YMin ) / 2
 			arcpy.AddMessage("Diagonal Length of input polygon: %.3f" % (polygonDiagonalLength))
 
 			arcpy.AddMessage("Creating Survey Plan...")
 
 			if polygonIsGeographic:
 				arcpy.AddMessage ("Layer is Geographicals...")
-				numlines = math.ceil(polygonDiagonalLength / geodetic.metresToDegrees(float(lineSpacing)))
+				polygonDiagonalLength = geodetic.degreesToMetres(polygonDiagonalLength)
+				arcpy.AddMessage("Diagonal Length of input polygon: %.3f" % (polygonDiagonalLength))
+				# numlines = math.ceil(polygonDiagonalLength / geodetic.metresToDegrees(float(lineSpacing)))
+				numlines = math.ceil(polygonDiagonalLength / float(lineSpacing))
 			else:
 				arcpy.AddMessage ("Layer is Grid NOT Geographicals...")
 				numlines = math.ceil(polygonDiagonalLength / float(lineSpacing))
-				polygonDiagonalLength = polygonDiagonalLength
 			arcpy.AddMessage ("Number of potential lines for clipping:" +str(numlines))
 
 			# clear the previous survey lines with the same prefix, so we do not double up
@@ -261,6 +286,7 @@ class surveyEstimator:
 
 			#now export the features to a CSV...
 			self.FC2CSV(FCName, vesselSpeedInKnots, turnDuration, lineSpacing, polygonIsGeographic)
+
 		return
 
 	def computeSurveyLines (self, polygonCentroidX, polygonCentroidY, lineSpacing, lineHeading, polygonDiagonalLength, polygonIsGeographic, spatialReference, linePrefix, projectName, FCName):
@@ -276,26 +302,28 @@ class surveyEstimator:
 		#do the Starboard Lines
 		offset = lineSpacing
 		while (offset < polygonDiagonalLength):
-			newCentreX, newCentreY = self.CalcGridCoord(polygonCentroidX, polygonCentroidY, lineHeading - 90.0, offset)
+			#newCentreX, newCentreY = self.CalcGridCoord(polygonCentroidX, polygonCentroidY, lineHeading - 90.0, offset)
+			newCentreX, newCentreY = geodetic.calculateCoordinateFromRangeBearing(polygonCentroidX, polygonCentroidY, offset, lineHeading - 90.0, polygonIsGeographic)
 			x2, y2, x3, y3 = self.CalcLineFromPoint(newCentreX, newCentreY, lineHeading, polygonDiagonalLength, polygonIsGeographic)
 			lineName = linePrefix + "_S" + str("%.1f" %(offset))
 			polyLine = self.addPolyline(x2, y2, x3, y3, FCName, spatialReference, linePrefix, lineName, float(lineHeading), projectName, lineSpacing)
 			offset = offset + lineSpacing
 			lineCount += 1
-			if lineCount % 10 == 0:
-				arcpy.AddMessage ("Creating line: %d" % (lineCount))
+			if lineCount % 25 == 0:
+				arcpy.AddMessage ("Creating Starboard Survey Lines: %d" % (lineCount))
 
 		#do the PORT Lines
 		offset = -lineSpacing
 		while (offset > -polygonDiagonalLength):
-			newCentreX, newCentreY = self.CalcGridCoord(polygonCentroidX, polygonCentroidY, lineHeading - 90.0, offset)
+			#newCentreX, newCentreY = self.CalcGridCoord(polygonCentroidX, polygonCentroidY, lineHeading - 90.0, offset)
+			newCentreX, newCentreY = geodetic.calculateCoordinateFromRangeBearing(polygonCentroidX, polygonCentroidY, offset, lineHeading - 90.0, polygonIsGeographic)
 			x2, y2, x3, y3 = self.CalcLineFromPoint(newCentreX, newCentreY, lineHeading, polygonDiagonalLength, polygonIsGeographic)
 			lineName = linePrefix + "_P" + str("%.1f" %(offset))
 			polyLine = self.addPolyline(x2, y2, x3, y3, FCName, spatialReference, linePrefix, lineName, float(lineHeading), projectName, lineSpacing)
 			offset = offset - lineSpacing
 			lineCount += 1
-			if lineCount % 10 == 0:
-				arcpy.AddMessage ("Creating line: %d" % (lineCount))
+			if lineCount % 25 == 0:
+				arcpy.AddMessage ("Creating Port Survey Lines: %d" % (lineCount))
 
 		arcpy.AddMessage ("%d Lines created" % (lineCount))
 
@@ -491,34 +519,102 @@ class surveyEstimator:
 		msg = "LineName,LineSpacing,StartX,StartY,EndX,EndY,Length(m),Heading,Speed(kts),Speed(m/s),Duration(h),TurnDuration(h),TotalDuration(h)\n"
 		file.write(msg)
 
-		entireSurveyDuration = 0
-		entireSurveyLineLength = 0
+		entireSurveyDuration	= 0
+		entireSurveyLineLength	= 0
+		entireSurveyLineCount	= 0
 		speed = vesselSpeedInKnots *(1852/3600) #convert from knots to metres/second
 		sCursor = arcpy.da.SearchCursor(FCName, ["SHAPE@", "LINE_NAME", "LINE_DIRECTION", "REMARKS"])
 		for row in sCursor:
-			duration = float(row[0].length) / speed / 3600
+			if polygonIsGeographic:
+				lineLength = geodetic.degreesToMetres(float(row[0].length))
+			else:
+				lineLength = float(row[0].length)
+
+			duration = lineLength / speed / 3600.00
 			totalDuration = duration + turnDuration
 			entireSurveyDuration += totalDuration
-			entireSurveyLineLength += row[0].length
+			entireSurveyLineLength += lineLength
+			entireSurveyLineCount += 1
 			lineSpacing = float(row[3])
-			msg = str("%s,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f\n" % (row[1], lineSpacing, row[0].firstPoint.X, row[0].firstPoint.Y, row[0].lastPoint.X, row[0].lastPoint.Y, row[0].length, row[2], vesselSpeedInKnots, vesselSpeedInKnots*(1852/3600), duration, turnDuration, totalDuration))
+			msg = str("%s,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f\n" % (row[1], lineSpacing, row[0].firstPoint.X, row[0].firstPoint.Y, row[0].lastPoint.X, row[0].lastPoint.Y, lineLength, row[2], vesselSpeedInKnots, vesselSpeedInKnots*(1852/3600), duration, turnDuration, totalDuration))
 			file.write(msg)
 
 		file.close()
 
 		#report the entire survey stats...
-		arcpy.AddMessage("Entire Survey duration: %.2f Hours" % (entireSurveyDuration))
-		arcpy.AddMessage("Entire Survey duration: %.2f Days" % (entireSurveyDuration/24))
-
-		if polygonIsGeographic:
-			entireSurveyLineLength = geodetic.degreesToMetres(entireSurveyLineLength)
-
-		arcpy.AddMessage("Entire Survey Line Length : %.2f KM" % (entireSurveyLineLength/1000))
+		arcpy.AddMessage("Entire Survey Line Count: %d Lines" % (entireSurveyLineCount))
+		arcpy.AddMessage("Entire Survey Line Length : %.2f Km" % (entireSurveyLineLength/1000))
+		arcpy.AddMessage("Entire Survey Duration: %.2f Hours" % (entireSurveyDuration))
+		arcpy.AddMessage("Entire Survey Duration: %.2f Days" % (entireSurveyDuration/24))
 
 
 		#now open the file for the user...
 		os.startfile('"' + csvName + '"')
 
+	def computeOptimalHeading(self, polyClipper, polygonIsGeographic):
+		arcpy.AddMessage("Computing Optimal Survey Heading from the selected polygon...")
+		try:
+			# Step through each part of the feature
+			xc=[]
+			yc=[]
+			for poly in polyClipper:
+				for part in poly:
+					for pnt in part:
+						if pnt:
+							xc.append(pnt.X)
+							yc.append(pnt.Y)
+						else:
+							# If pnt is None, this represents an interior ring
+							print("Interior Ring:")		
+			#now compute the length of each vector
+			ranges=[]
+			maxRange = 0
+			optimalBearing = 0
+			for count, item in enumerate(xc, start=1 ):
+				if count < len(xc):
+					rng, brg = geodetic.calculateRangeBearingFromCoordinates(xc[count-1], yc[count-1], xc[count], yc[count], polygonIsGeographic)
+					if rng > maxRange:
+						optimalBearing = brg
+					#ranges.append([rng,brg])
+			arcpy.AddMessage("*******************")
+			arcpy.AddMessage("Optimal Bearing is %.2f" % (optimalBearing))
+			arcpy.AddMessage("*******************")
+			return optimalBearing
+		except Exception as e:
+			arcpy.AddMessage("Error computing optimal heading, skipping...")
+			return 0
+
+	def computeMeanDepthFromSoundingGrid(self, FCName, spatialReference, polyClipper, MBESCoverageMultiplier):
+		'''iterate through all features inside the sounding_grid (if present) and compute the mean depth within the selected polygon.'''
+		arcpy.AddMessage("Computing Depth within polygon...")
+
+		if not arcpy.Exists(FCName):
+			arcpy.AddMessage("%s does not exist, skipping computation of mean depth.")
+		else:
+			ClippedName = "TempClippedSoundings" #Temporary featureclass for clipping results. This gets compied into the SSDM layer at the end and then cleared out
+			self.checkSoundingGridFCExists(ClippedName, spatialReference)
+			arcpy.AddMessage ("Clipping soundings grid to survey polygon for estimation...")
+			#we need to clear out the temp soundings grid in case it is run more than once...
+			arcpy.DeleteFeatures_management(ClippedName)
+			arcpy.Clip_analysis(FCName, polyClipper, ClippedName)
+
+			sumZ = 0
+			countZ = 0
+			sCursor = arcpy.da.SearchCursor(ClippedName, ["SHAPE@", "ELEVATION"])
+			for row in sCursor:
+				sumZ += float(row[1])
+				countZ += 1
+				if countZ % 10 == 0:
+					arcpy.AddMessage("ID:%d X:%.2f Y:%.2f Z:%.2f" % (countZ, row[0].centroid.X, row[0].centroid.Y, row[1]))
+			if countZ > 0:
+				arcpy.AddMessage("****************")
+				arcpy.AddMessage("Mean Depth within Selected Polygon:%.2f Sample Count:%d" % (sumZ/countZ, countZ))
+				arcpy.AddMessage("e.g. with a coverage rate of %.1f, the primary line spacing should be %.2f" % (MBESCoverageMultiplier, MBESCoverageMultiplier * sumZ/countZ))
+				arcpy.AddMessage("****************")
+				return math.fabs(MBESCoverageMultiplier * sumZ/countZ)
+			else:
+				arcpy.AddMessage("No depths found within polygon, so we failed to compute mean depth. Proceeding with line spacing of 1000m.")
+				return 1000
 	#def createFileGDB(self, FGDBName):
 	#	# Set workspace
 	#	# arcpy.env.workspace = "Z:\\home\\user\\mydata"
