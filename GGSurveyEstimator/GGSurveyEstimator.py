@@ -9,7 +9,6 @@
 import arcpy
 import geodetic
 import math
-
 import os.path
 import math
 import pprint
@@ -39,70 +38,68 @@ class SurveyEstimatorTool(object):
 
 	def getParameterInfo(self):
 		"""Define parameter definitions"""
-		# First parameter
 		param0 = arcpy.Parameter(
-			displayName="Feature Layer to Estimate. This is the layer containing the user selected polygon for estimation, and is critical to the computation.",
-			name="in_features",
-			datatype="GPFeatureLayer",
-			parameterType="Required",
-			direction="Input")
-		param0.value = "SelectBoundaryPolygonLayer..."
-
-		param1 = arcpy.Parameter(
 			displayName="Primary Line Spacing (m) (e.g. Spacing = Depth*MBESCoverage, or -1 to compute depths based on SSDM Survey_Sounding_Grid Feature Class)",
 			name="lineSpacing",
 			datatype="Field",
 			parameterType="Required",
 			direction="Input")
-		param1.value = "-1"
+		param0.value = "1000"
 
-		param2 = arcpy.Parameter( 
+		param1 = arcpy.Parameter(
 			displayName="MBESCoverageMultiplier (only used when autocomputing the line spacing with the Survey_Sounding_Grid, if manually setting line spacing, ignore this. Use GGGebcoExtractor to create a sounding grid!)",
 			name="MBESCoverageMultiplier",
 			datatype="Field",
 			parameterType="Required",
 			direction="Input")
-		param2.value = "4.0"
+		param1.value = "4.0"
 
-		param3 = arcpy.Parameter(
-			displayName="Primary Survey Line Heading (deg)",
+		param2 = arcpy.Parameter(
+			displayName="Primary Survey Line Heading (deg). Set this to -1 for the optimal line heading to be comuted, which is parallel to the long axis of the survey area.",
 			name="lineHeading",
 			datatype="Field",
 			parameterType="Required",
 			direction="Input")
-		param3.value = "-1"
+		param2.value = "-1"
 
-		param4 = arcpy.Parameter(
+		param3 = arcpy.Parameter(
 			displayName="LinePrefix.  This is used to populate SSDM Tables, and used to identify and remove duplicate computations",
 			name="linePrefix",
 			datatype="Field",
 			parameterType="Required",
 			direction="Input")
-		param4.value = "MainLine"
+		param3.value = "MainLine"
 
-		param5 = arcpy.Parameter(
+		param4 = arcpy.Parameter(
 			displayName="Vessel Speed in Knots.  This is used to compute the duration of the survey.",
 			name="vesselSpeedInKnots",
 			datatype="Field",
 			parameterType="Required",
 			direction="Input")
-		param5.value = "4.5"
+		param4.value = "4.5"
 
-		param6 = arcpy.Parameter(
-			displayName="Turn Duration (hours). This is used to compute the duration of the survey",
+		param5 = arcpy.Parameter(
+			displayName="Turn Duration in Minutes. This is used to compute the duration of the survey",
 			name="turnDuration",
 			datatype="Field",
 			parameterType="Required",
 			direction="Input")
-		param6.value = "0.25"
+		param5.value = "10"
 
-		param7 = arcpy.Parameter(
+		param6 = arcpy.Parameter(
 			displayName="CrossLine Multiplier (e.g. 15 times primary line spacing, 0 for no crosslines) See https://github.com/pktrigg/GGSurveyEstimator",
 			name="crossLineMultiplier",
 			datatype="Field",
 			parameterType="Required",
 			direction="Input")
-		param7.value = "15"
+		param6.value = "15"
+		param7 = arcpy.Parameter(
+			displayName="Skip the above computation and ONLY generate the reports.  This is useful when you are happy with the line plan, or after you have made subseqent edits to the line plan in ArcGIS.",
+			name="GenerateReport",
+			datatype="Boolean",
+			parameterType="Required",
+			direction="Input")
+		param7.value = "False"
 
 		params = [param0, param1, param2, param3, param4, param5, param6, param7]
 
@@ -144,52 +141,53 @@ class surveyEstimator:
 	def compute(self, parameters):
 		'''computes a survey line plans using user-specified parameters and a user selected polygon in ArcGISPro'''
 
-		clipLayerName			= parameters[0].valueAsText
-		lineSpacing				= float(parameters[1].valueAsText)
-		MBESCoverageMultiplier	= float(parameters[2].valueAsText)
-		lineHeading				= float(parameters[3].valueAsText)
-		linePrefix				= parameters[4].valueAsText
-		vesselSpeedInKnots		= float(parameters[5].valueAsText)
-		turnDuration			= float(parameters[6].valueAsText)
-		crossLineMultiplier		= float(parameters[7].valueAsText)
+		lineSpacing				= float(parameters[0].valueAsText)
+		MBESCoverageMultiplier	= float(parameters[1].valueAsText)
+		lineHeading				= float(parameters[2].valueAsText)
+		linePrefix				= parameters[3].valueAsText
+		vesselSpeedInKnots		= float(parameters[4].valueAsText)
+		turnDuration			= float(parameters[5].valueAsText) / 60.0
+		crossLineMultiplier		= float(parameters[6].valueAsText)
+		reportAction			= parameters[7].valueAsText
 		polygonIsGeographic		= False #used to manage both grid and geographical polygons, so we can compute both with ease.
 		projectName				= arcpy.env.workspace
-		FCName					= "Proposed_Survey_Run_Lines" #Official SSDM V2 FC name
+		targetFCName			= "Proposed_Survey_Run_Lines" #Official SSDM V2 FC name
+		sourceFCName 			= self.getSourceFeatureClassName()
+		arcpy.AddMessage("ReportAction %s" % (reportAction))
 
-		aprx = arcpy.mp.ArcGISProject("current")
-		aprxMap = aprx.listMaps("Map")[0]
-		for lyr in aprxMap.listLayers("*"):
-			if lyr.getSelectionSet():
-				arcpy.AddMessage ("found layerpkpk %s " % (lyr.name))				
-				for sel in lyr.getSelectionSet():
-					fname = 'FID'
-					fields = arcpy.ListFields(lyr.name)
-					for field in fields:
-						if field.name == "OBJECTID":
-							fname = 'OBJECTID'
-					with arcpy.da.SearchCursor(lyr, [fname]) as cursor:  
-						for row in cursor:  
-							print(row[0])
+		if sourceFCName == "":
+			arcpy.AddMessage ("To estimate an area, please use the regular 'Select' tool in the ribbon\map tab to select a polygon.")
+			arcpy.AddMessage ("No selected polygon to process, exiting...")
+			exit(1)
 
+		if lineSpacing == 0 or lineSpacing < -1:
+			arcpy.AddMessage ("Please select a sensible line spacing and try again!")
+			exit(1)
 
+		if vesselSpeedInKnots < 0:
+			arcpy.AddMessage ("Please select a sensible vessel speed and try again!")
+			exit(1)
 
 		# show the user something is happening...
 		arcpy.AddMessage ("WorkingFolder  : %s " % (arcpy.env.workspace))
-		arcpy.AddMessage ("Input FeatureClass  : %s " % (clipLayerName))
-		#arcpy.AddMessage ("Requested Line Spacing (m) : %s" % (lineSpacing))
-		#arcpy.AddMessage ("Requested Line Heading (deg) : %s" % (lineHeading))
+		arcpy.AddMessage ("Input FeatureClass  : %s " % (sourceFCName))
 
-		spatialReference = arcpy.Describe(clipLayerName, "GPFeatureLayer").spatialReference
+		spatialReference = arcpy.Describe(sourceFCName, "GPFeatureLayer").spatialReference
 		arcpy.AddMessage("Spatial Reference: %s" % (spatialReference.name))
 		if spatialReference.type == "Geographic":
 			arcpy.AddMessage("SRType %s" % (spatialReference.type))
 			polygonIsGeographic = True
 
+		if reportAction == 'true':
+			#now export the features to a CSV...
+			self.FC2CSV(targetFCName, vesselSpeedInKnots, turnDuration, lineSpacing, polygonIsGeographic)
+			return
+
 		#test to ensure a GDB is attached to the project
 		if not self.checkGDBExists():
 			return 1
 		#test to ensure the OUTPUT polyline featureclass exists in the SSDM format + create if not
-		if not self.checkRunlineFCExists(FCName, spatialReference):
+		if not self.checkRunlineFCExists(targetFCName, spatialReference):
 			return 1
 
 		TMPName = "TempLines" #Temporary featureclass for the unclipped survey line computation loops. This gets cleared out at the end.
@@ -198,104 +196,118 @@ class surveyEstimator:
 		ClippedName = "TempClipped" #Temporary featureclass for clipping results. This gets compied into the SSDM layer at the end and then cleared out
 		self.checkRunlineFCExists(ClippedName, spatialReference)
 
-		count = 0
-		#need to extract the clipLayerName from the full path as the full path does NOT take into account the selected features for processing.
-		sCursor = arcpy.da.SearchCursor(clipLayerName, ["SHAPE@"])
-		for row in sCursor:
-			count += 1
-		if count > 1:
-			arcpy.AddMessage ("oops, you have selected none, or more than 1 polygon.  Please try again and select only 1 polygon!")
-			return 1
+		# find the user selected polygon from which we can conduct the estimation.
+		polyClipper = self.getSurveyArea(sourceFCName)
 
-		sCursor = arcpy.da.SearchCursor(clipLayerName, ["SHAPE@"])
+		if lineHeading == -1:
+			lineHeading = self.computeOptimalHeading(polyClipper, polygonIsGeographic)
+
+		if lineSpacing == -1:
+			lineSpacing = self.computeMeanDepthFromSoundingGrid("Survey_Sounding_Grid", spatialReference, polyClipper, MBESCoverageMultiplier)
+			arcpy.AddMessage("LineSpacing: %.3f" % (lineSpacing))
+
+		#get the centre of the polygon...
+		polygonCentroidX = polyClipper[0].centroid.X
+		polygonCentroidY = polyClipper[0].centroid.Y
+
+		#compute the long axis...
+		polygonDiagonalLength = math.hypot(polyClipper[0].extent.XMax - polyClipper[0].extent.XMin, polyClipper[0].extent.YMax - polyClipper[0].extent.YMin ) / 2
+		arcpy.AddMessage("Diagonal Length of input polygon: %.3f" % (polygonDiagonalLength))
+
+		arcpy.AddMessage("Creating Survey Plan...")
+
+		if polygonIsGeographic:
+			arcpy.AddMessage ("Layer is Geographicals...")
+			polygonDiagonalLength = geodetic.degreesToMetres(polygonDiagonalLength)
+			arcpy.AddMessage("Diagonal Length of input polygon: %.3f" % (polygonDiagonalLength))
+			# numlines = math.ceil(polygonDiagonalLength / geodetic.metresToDegrees(float(lineSpacing)))
+			numlines = math.ceil(polygonDiagonalLength / float(lineSpacing))
+		else:
+			arcpy.AddMessage ("Layer is Grid NOT Geographicals...")
+			numlines = math.ceil(polygonDiagonalLength / float(lineSpacing))
+		arcpy.AddMessage ("Number of potential lines for clipping:" +str(numlines))
+
+		# clear the previous survey lines with the same prefix, so we do not double up
+		self.deleteSurveyLines(targetFCName, sourceFCName, linePrefix)
+
+		# now run the computation on the PRIMARY lines...
+		arcpy.AddMessage ("Computing Primary Survey Lines...")
+		self.computeSurveyLines (polygonCentroidX, polygonCentroidY, lineSpacing, lineHeading, polygonDiagonalLength, polygonIsGeographic, spatialReference, linePrefix, projectName, TMPName)
+
+		# now run the computation on the CROSS lines...
+		if crossLineMultiplier > 0:
+			arcpy.AddMessage ("Computing Cross Lines...")
+			self.computeSurveyLines (polygonCentroidX, polygonCentroidY, lineSpacing*crossLineMultiplier, lineHeading+90, polygonDiagonalLength, polygonIsGeographic, spatialReference, linePrefix+"_X", projectName, TMPName)
+
+		#clip the lines from the TMP to the Clipped FC
+		arcpy.AddMessage ("Clipping to polygon...")
+		arcpy.Clip_analysis(TMPName, polyClipper, ClippedName)
+
+		#append the clipped lines into the final FC
+		arcpy.Append_management(ClippedName, targetFCName)
+
+		#clean up
+		arcpy.DeleteFeatures_management(TMPName)
+		arcpy.DeleteFeatures_management(ClippedName)
+
+		#add ther resulting estimation to the map.
+		self.addResultsToMap(targetFCName)
+
+		#now export the features to a CSV...
+		self.FC2CSV(targetFCName, vesselSpeedInKnots, turnDuration, lineSpacing, polygonIsGeographic)
+		return
+
+	def	addResultsToMap(self, targetFCName):
+		'''now add the new layer to the map'''
+		arcpy.env.addOutputsToMap = True
+		aprx = arcpy.mp.ArcGISProject("current")
+		aprxMap = aprx.listMaps("Map")[0]
+		LayerExists = False
+		for lyr in aprxMap.listLayers("*"):
+			if lyr.name == targetFCName:
+				LayerExists = True
+
+		if LayerExists == False:
+			lyrTest = arcpy.env.workspace + "\\" + targetFCName
+			aprx = arcpy.mp.ArcGISProject("current")
+			aprxMap = aprx.listMaps("Map")[0]
+			aprxMap.addDataFromPath(lyrTest)
+		return
+
+	def getSurveyArea(self, sourceFCName):
+		'''read through the source featureclass and return the selected polygon for processing'''
+		sCursor = arcpy.da.SearchCursor(sourceFCName, ["SHAPE@"])
 		for row in sCursor:
 			arcpy.AddMessage ("Selected Polygon Centroid:")
 			arcpy.AddMessage("X:%.2f Y:%.2f" % (row[0].centroid.X, row[0].centroid.Y))
 			arcpy.AddMessage("ExtentXMin:%.2f ExtentXMax:%.2f" % (row[0].extent.XMin, row[0].extent.XMax))
-
-			#remember the polygon we will be using as the clipper
 			polyClipper = row
+			return polyClipper
+		arcpy.AddMessage("oops, no selected polygon in the source featureclass.  Please select a polygon and try again")
+		return None
 
-			if lineHeading == -1:
-				lineHeading = self.computeOptimalHeading(polyClipper, polygonIsGeographic)
-
-			if lineSpacing == -1:
-				#MBESCoverageMultiplier = 10 #pkpk
-				lineSpacing = self.computeMeanDepthFromSoundingGrid("Survey_Sounding_Grid", spatialReference, polyClipper, MBESCoverageMultiplier)
-
-			#get the centre of the polygon...
-			polygonCentroidX = row[0].centroid.X
-			polygonCentroidY = row[0].centroid.Y
-
-			#compute the long axis...
-			polygonDiagonalLength = math.hypot(row[0].extent.XMax - row[0].extent.XMin, row[0].extent.YMax - row[0].extent.YMin ) / 2
-			arcpy.AddMessage("Diagonal Length of input polygon: %.3f" % (polygonDiagonalLength))
-
-			arcpy.AddMessage("Creating Survey Plan...")
-
-			if polygonIsGeographic:
-				arcpy.AddMessage ("Layer is Geographicals...")
-				polygonDiagonalLength = geodetic.degreesToMetres(polygonDiagonalLength)
-				arcpy.AddMessage("Diagonal Length of input polygon: %.3f" % (polygonDiagonalLength))
-				# numlines = math.ceil(polygonDiagonalLength / geodetic.metresToDegrees(float(lineSpacing)))
-				numlines = math.ceil(polygonDiagonalLength / float(lineSpacing))
-			else:
-				arcpy.AddMessage ("Layer is Grid NOT Geographicals...")
-				numlines = math.ceil(polygonDiagonalLength / float(lineSpacing))
-			arcpy.AddMessage ("Number of potential lines for clipping:" +str(numlines))
-
-			# clear the previous survey lines with the same prefix, so we do not double up
-			self.deleteSurveyLines(FCName, clipLayerName, linePrefix)
-
-			# now run the computation on the PRIMARY lines...
-			arcpy.AddMessage ("Computing Primary Survey Lines...")
-			self.computeSurveyLines (polygonCentroidX, polygonCentroidY, lineSpacing, lineHeading, polygonDiagonalLength, polygonIsGeographic, spatialReference, linePrefix, projectName, TMPName)
-
-			# now run the computation on the CROSS lines...
-			if crossLineMultiplier > 0:
-				arcpy.AddMessage ("Computing Cross Lines...")
-				self.computeSurveyLines (polygonCentroidX, polygonCentroidY, lineSpacing*crossLineMultiplier, lineHeading+90, polygonDiagonalLength, polygonIsGeographic, spatialReference, linePrefix+"_X", projectName, TMPName)
-
-			#clip the lines from the TMP to the Clipped FC
-			arcpy.AddMessage ("Clipping to polygon...")
-
-			arcpy.Clip_analysis(TMPName, polyClipper, ClippedName)
-			#append the clipped lines into the final FC
-			arcpy.Append_management(ClippedName, FCName)
-			#clean up
-			arcpy.DeleteFeatures_management(TMPName)
-			arcpy.DeleteFeatures_management(ClippedName)
-
-			# from: https://community.esri.com/thread/168531
-			# now add the new layer to the map
-			# Use this line if you're not sure if it's already true
-			arcpy.env.addOutputsToMap = True
-
-			aprx = arcpy.mp.ArcGISProject("current")
-			aprxMap = aprx.listMaps("Map")[0]
-			LayerExists = False
+	def getSourceFeatureClassName(self):
+		'''search through all the layers in the GIS and find the layer name with a selected feature. If there is no selected feature return an empty string '''
+		aprx = arcpy.mp.ArcGISProject("current")
+		aprxMap = aprx.listMaps("Map")[0]
+		try:
 			for lyr in aprxMap.listLayers("*"):
-				if lyr.name == FCName:
-					LayerExists = True
+				if lyr.getSelectionSet():
+					arcpy.AddMessage ("found layer%s " % (lyr.name))
+					return lyr.name
+			arcpy.AddMessage ("!!!!Oops.  No selected polygon found to process!!!!")
+			return ""
+		except :
+			arcpy.AddMessage ("!!!!Oops.  Problem finding a valid layer.  Please select a polygon for processing and try again!!!!")
+			return ""
 
-			if LayerExists == False:
-				lyrTest = arcpy.env.workspace + "\\" + FCName
-				aprx = arcpy.mp.ArcGISProject("current")
-				aprxMap = aprx.listMaps("Map")[0]
-				aprxMap.addDataFromPath(lyrTest)
-
-			#now export the features to a CSV...
-			self.FC2CSV(FCName, vesselSpeedInKnots, turnDuration, lineSpacing, polygonIsGeographic)
-
-		return
-
-	def computeSurveyLines (self, polygonCentroidX, polygonCentroidY, lineSpacing, lineHeading, polygonDiagonalLength, polygonIsGeographic, spatialReference, linePrefix, projectName, FCName):
+	def computeSurveyLines (self, polygonCentroidX, polygonCentroidY, lineSpacing, lineHeading, polygonDiagonalLength, polygonIsGeographic, spatialReference, linePrefix, projectName, targetFCName):
 		''' compute a survey line plan and add it to the featureclass'''
 		lineCount = 0
 		#do the CENTRELINE
 		x2, y2, x3, y3 = self.CalcLineFromPoint(polygonCentroidX, polygonCentroidY, lineHeading, polygonDiagonalLength, polygonIsGeographic)
 		lineName = linePrefix + "_Centreline"
-		polyLine = self.addPolyline(x2, y2, x3, y3, FCName, spatialReference, linePrefix, lineName, float(lineHeading), projectName, lineSpacing)
+		polyLine = self.addPolyline(x2, y2, x3, y3, targetFCName, spatialReference, linePrefix, lineName, float(lineHeading), projectName, lineSpacing)
 		arcpy.AddMessage ("Centreline created")
 		lineCount += 1
 
@@ -306,7 +318,7 @@ class surveyEstimator:
 			newCentreX, newCentreY = geodetic.calculateCoordinateFromRangeBearing(polygonCentroidX, polygonCentroidY, offset, lineHeading - 90.0, polygonIsGeographic)
 			x2, y2, x3, y3 = self.CalcLineFromPoint(newCentreX, newCentreY, lineHeading, polygonDiagonalLength, polygonIsGeographic)
 			lineName = linePrefix + "_S" + str("%.1f" %(offset))
-			polyLine = self.addPolyline(x2, y2, x3, y3, FCName, spatialReference, linePrefix, lineName, float(lineHeading), projectName, lineSpacing)
+			polyLine = self.addPolyline(x2, y2, x3, y3, targetFCName, spatialReference, linePrefix, lineName, float(lineHeading), projectName, lineSpacing)
 			offset = offset + lineSpacing
 			lineCount += 1
 			if lineCount % 25 == 0:
@@ -319,7 +331,7 @@ class surveyEstimator:
 			newCentreX, newCentreY = geodetic.calculateCoordinateFromRangeBearing(polygonCentroidX, polygonCentroidY, offset, lineHeading - 90.0, polygonIsGeographic)
 			x2, y2, x3, y3 = self.CalcLineFromPoint(newCentreX, newCentreY, lineHeading, polygonDiagonalLength, polygonIsGeographic)
 			lineName = linePrefix + "_P" + str("%.1f" %(offset))
-			polyLine = self.addPolyline(x2, y2, x3, y3, FCName, spatialReference, linePrefix, lineName, float(lineHeading), projectName, lineSpacing)
+			polyLine = self.addPolyline(x2, y2, x3, y3, targetFCName, spatialReference, linePrefix, lineName, float(lineHeading), projectName, lineSpacing)
 			offset = offset - lineSpacing
 			lineCount += 1
 			if lineCount % 25 == 0:
@@ -338,16 +350,16 @@ class surveyEstimator:
 				arcpy.AddMessage("Oops, workspace is NOT a gdb, aborting. Please ensure you are using a file geodatabase, not this: %s" % (arcpy.env.workspace))
 				return False
 
-	# def checkRunlineFCExists2(self, FCName, spatialReference):
+	# def checkRunlineFCExists2(self, targetFCName, spatialReference):
 	# 	 # check the output FC is in place and if not, make it
 	# 	 # from https://community.esri.com/thread/18204
 	# 	 # from https://www.programcreek.com/python/example/107189/arcpy.CreateFeatureclass_management
 
 	# 	 # this checks the FC is in the geodatabase as defined by the worskspace at 'arcpy.env.workspace'
-	# 	 #arcpy.AddMessage("Checking FC exists... %s" % (FCName))
+	# 	 #arcpy.AddMessage("Checking FC exists... %s" % (targetFCName))
 
-	# 	 if not arcpy.Exists(FCName):
-	# 		 arcpy.AddMessage("Creating FeatureClass: %s..." % (FCName))
+	# 	 if not arcpy.Exists(targetFCName):
+	# 		 arcpy.AddMessage("Creating FeatureClass: %s..." % (targetFCName))
 
 	# 		 #it does not exist, so make it...
 	# 		 try:
@@ -368,18 +380,18 @@ class surveyEstimator:
 	# 			 #total_start = time.clock()
 
 	# 			 #start = time.clock()
-	# 			 fc = arcpy.CreateFeatureclass_management(arcpy.env.workspace, FCName, "POLYLINE", None, None, None, spatialReference)
+	# 			 fc = arcpy.CreateFeatureclass_management(arcpy.env.workspace, targetFCName, "POLYLINE", None, None, None, spatialReference)
 	# 			 #end = time.clock()
 	# 			 #arcpy.AddMessage("Create Feature Class %.3f" % (end - start))
 
 	# 			 #start = time.clock()
 	# 			 for fc_field in fc_fields:
-	# 				 arcpy.AddField_management(FCName, fc_field[0], fc_field[1], fc_field[2], fc_field[3], fc_field[4], fc_field[5], fc_field[6], fc_field[7])
+	# 				 arcpy.AddField_management(targetFCName, fc_field[0], fc_field[1], fc_field[2], fc_field[3], fc_field[4], fc_field[5], fc_field[6], fc_field[7])
 	# 			 #end = time.clock()
 	# 			 #arcpy.AddMessage("Create Fields %.3f" % (end - start))
 
 	# 			 #start = time.clock()
-	# 			 arcpy.DeleteField_management(FCName, "Id")
+	# 			 arcpy.DeleteField_management(targetFCName, "Id")
 	# 			 #end = time.clock()
 	# 			 #arcpy.AddMessage("Delete Id Field %.3f" % (end - start))
 
@@ -391,19 +403,19 @@ class surveyEstimator:
 	# 			 arcpy.AddMessage("Error creating FeatureClass, Aborting.")
 	# 			 return False
 	# 	 else:
-	# 		 arcpy.AddMessage("FC %s already exists, will use it." % (FCName))
+	# 		 arcpy.AddMessage("FC %s already exists, will use it." % (targetFCName))
 	# 		 return True
 
-	def checkRunlineFCExists(self, FCName, spatialReference):
+	def checkRunlineFCExists(self, targetFCName, spatialReference):
 		# check the output FC is in place and if not, make it
 		# from https://community.esri.com/thread/18204
 		# from https://www.programcreek.com/python/example/107189/arcpy.CreateFeatureclass_management
 
 		# this checks the FC is in the geodatabase as defined by the worskspace at 'arcpy.env.workspace'
-		#arcpy.AddMessage("Checking FC exists... %s" % (FCName))
+		#arcpy.AddMessage("Checking FC exists... %s" % (targetFCName))
 
-		if not arcpy.Exists(FCName):
-			arcpy.AddMessage("Creating FeatureClass: %s..." % (FCName))
+		if not arcpy.Exists(targetFCName):
+			arcpy.AddMessage("Creating FeatureClass: %s..." % (targetFCName))
 
 			#it does not exist, so make it...
 			try:
@@ -428,28 +440,28 @@ class surveyEstimator:
 				("APPROVED_DATE", "DATE", None, None, None, "", "NULLABLE", "NON_REQUIRED"),
 				("LAYER", "TEXT", None, None, 255, "", "NULLABLE", "NON_REQUIRED"),
 				)
-				fc = arcpy.CreateFeatureclass_management(arcpy.env.workspace, FCName, "POLYLINE", None, None, None, spatialReference)
+				fc = arcpy.CreateFeatureclass_management(arcpy.env.workspace, targetFCName, "POLYLINE", None, None, None, spatialReference)
 				for fc_field in fc_fields:
-					arcpy.AddField_management(FCName, fc_field[0], fc_field[1], fc_field[2], fc_field[3], fc_field[4], fc_field[5], fc_field[6], fc_field[7])
+					arcpy.AddField_management(targetFCName, fc_field[0], fc_field[1], fc_field[2], fc_field[3], fc_field[4], fc_field[5], fc_field[6], fc_field[7])
 				return fc
 			except Exception as e:
 				print(e)
 				arcpy.AddMessage("Error creating FeatureClass, Aborting.")
 				return False
 		else:
-			arcpy.AddMessage("FC %s already exists, will use it." % (FCName))
+			arcpy.AddMessage("FC %s already exists, will use it." % (targetFCName))
 			return True
 
-	def checkSoundingGridFCExists(self, FCName, spatialReference):
+	def checkSoundingGridFCExists(self, targetFCName, spatialReference):
 		# check the output SSDM 'sounding_grid' FC is in place and if not, make it
 		# from https://community.esri.com/thread/18204
 		# from https://www.programcreek.com/python/example/107189/arcpy.CreateFeatureclass_management
 
 		# this checks the FC is in the geodatabase as defined by the worskspace at 'arcpy.env.workspace'
-		#arcpy.AddMessage("Checking FC exists... %s" % (FCName))
+		#arcpy.AddMessage("Checking FC exists... %s" % (targetFCName))
 
-		if not arcpy.Exists(FCName):
-			arcpy.AddMessage("Creating FeatureClass: %s..." % (FCName))
+		if not arcpy.Exists(targetFCName):
+			arcpy.AddMessage("Creating FeatureClass: %s..." % (targetFCName))
 
 			#it does not exist, so make it...
 			try:
@@ -466,22 +478,22 @@ class surveyEstimator:
 				("LINE_NAME", "TEXT", None, None, 20, "", "NULLABLE", "NON_REQUIRED"),
 				("LAYER", "TEXT", None, None, 255, "", "NULLABLE", "NON_REQUIRED"),
 				)
-				fc = arcpy.CreateFeatureclass_management(arcpy.env.workspace, FCName, "POINT", None, None, None, spatialReference)
+				fc = arcpy.CreateFeatureclass_management(arcpy.env.workspace, targetFCName, "POINT", None, None, None, spatialReference)
 				for fc_field in fc_fields:
-				 	arcpy.AddField_management(FCName, fc_field[0], fc_field[1], fc_field[2], fc_field[3], fc_field[4], fc_field[5], fc_field[6], fc_field[7])
+				 	arcpy.AddField_management(targetFCName, fc_field[0], fc_field[1], fc_field[2], fc_field[3], fc_field[4], fc_field[5], fc_field[6], fc_field[7])
 				return fc
 			except Exception as e:
 				print(e)
 				arcpy.AddMessage("Error creating FeatureClass, Aborting.")
 				return False
 		else:
-			arcpy.AddMessage("FC %s already exists, will use it." % (FCName))
+			arcpy.AddMessage("FC %s already exists, will use it." % (targetFCName))
 			return True
 
-	def addPolyline(self, x1, y1, x2, y2, FCName, spatialReference, linePrefix, lineName, lineDirection, projectName, layerComment):
+	def addPolyline(self, x1, y1, x2, y2, targetFCName, spatialReference, linePrefix, lineName, lineDirection, projectName, layerComment):
 		'''add a survey line to the geodatabase'''
 		#http://pro.arcgis.com/en/pro-app/arcpy/get-started/writing-geometries.htm
-		cursor = arcpy.da.InsertCursor(FCName, ["SHAPE@", "LINE_PREFIX", "LINE_NAME", "LINE_DIRECTION", "PROJECT_NAME", "PREPARED_BY", "PREPARED_DATE", "REMARKS"])
+		cursor = arcpy.da.InsertCursor(targetFCName, ["SHAPE@", "LINE_PREFIX", "LINE_NAME", "LINE_DIRECTION", "PROJECT_NAME", "PREPARED_BY", "PREPARED_DATE", "REMARKS"])
 		array = arcpy.Array([arcpy.Point(x1,y1), arcpy.Point(x2,y2)])
 		polyline = arcpy.Polyline(array, spatialReference)
 
@@ -501,18 +513,18 @@ class surveyEstimator:
 		y2 = y1 + (math.sin(math.radians(270 - bearing)) * rng)
 		return (x2, y2)
 
-	def deleteSurveyLines(self, FCName, clipLayerName, linePrefix):
-		arcpy.AddMessage("Clearing out existing lines from layer: %s with prefix %s" % (clipLayerName, linePrefix))
+	def deleteSurveyLines(self, targetFCName, sourceFCName, linePrefix):
+		arcpy.AddMessage("Clearing out existing lines from layer: %s with prefix %s" % (sourceFCName, linePrefix))
 		whereclause = "LINE_PREFIX LIKE '%" + linePrefix + "%'"
-		arcpy.SelectLayerByAttribute_management (FCName, "NEW_SELECTION", whereclause)
-		arcpy.DeleteRows_management(FCName)
+		arcpy.SelectLayerByAttribute_management (targetFCName, "NEW_SELECTION", whereclause)
+		arcpy.DeleteRows_management(targetFCName)
 
 	def get_username(self):
 		return os.getenv('username')
 
-	def FC2CSV(self, FCName, vesselSpeedInKnots, turnDuration, lineSpacing, polygonIsGeographic):
+	def FC2CSV(self, targetFCName, vesselSpeedInKnots, turnDuration, lineSpacing, polygonIsGeographic):
 		'''read through the featureclass and convert the file to a CSV so we can open it in Excel and complete the survey estimation process'''
-		csvName = os.path.dirname(os.path.dirname(arcpy.env.workspace)) + "\\" + FCName + ".csv"
+		csvName = os.path.dirname(os.path.dirname(arcpy.env.workspace)) + "\\" + targetFCName + ".csv"
 		csvName = createOutputFileName(csvName)
 		arcpy.AddMessage("Writing results to file: %s" % (csvName))
 		file = open(csvName, 'w')
@@ -523,7 +535,7 @@ class surveyEstimator:
 		entireSurveyLineLength	= 0
 		entireSurveyLineCount	= 0
 		speed = vesselSpeedInKnots *(1852/3600) #convert from knots to metres/second
-		sCursor = arcpy.da.SearchCursor(FCName, ["SHAPE@", "LINE_NAME", "LINE_DIRECTION", "REMARKS"])
+		sCursor = arcpy.da.SearchCursor(targetFCName, ["SHAPE@", "LINE_NAME", "LINE_DIRECTION", "REMARKS"])
 		for row in sCursor:
 			if polygonIsGeographic:
 				lineLength = geodetic.degreesToMetres(float(row[0].length))
@@ -565,7 +577,7 @@ class surveyEstimator:
 							yc.append(pnt.Y)
 						else:
 							# If pnt is None, this represents an interior ring
-							print("Interior Ring:")		
+							print("Interior Ring:")
 			#now compute the length of each vector
 			ranges=[]
 			maxRange = 0
@@ -584,19 +596,20 @@ class surveyEstimator:
 			arcpy.AddMessage("Error computing optimal heading, skipping...")
 			return 0
 
-	def computeMeanDepthFromSoundingGrid(self, FCName, spatialReference, polyClipper, MBESCoverageMultiplier):
+	def computeMeanDepthFromSoundingGrid(self, targetFCName, spatialReference, polyClipper, MBESCoverageMultiplier):
 		'''iterate through all features inside the sounding_grid (if present) and compute the mean depth within the selected polygon.'''
 		arcpy.AddMessage("Computing Depth within polygon...")
 
-		if not arcpy.Exists(FCName):
-			arcpy.AddMessage("%s does not exist, skipping computation of mean depth.")
+		if not arcpy.Exists(targetFCName):
+			arcpy.AddMessage("!!!!!!%s does not exist, skipping computation of mean depth. Will default to a 1000m line spacing soe you get some form of result!!!!!!" % (targetFCName))
+			return 1000
 		else:
 			ClippedName = "TempClippedSoundings" #Temporary featureclass for clipping results. This gets compied into the SSDM layer at the end and then cleared out
 			self.checkSoundingGridFCExists(ClippedName, spatialReference)
 			arcpy.AddMessage ("Clipping soundings grid to survey polygon for estimation...")
 			#we need to clear out the temp soundings grid in case it is run more than once...
 			arcpy.DeleteFeatures_management(ClippedName)
-			arcpy.Clip_analysis(FCName, polyClipper, ClippedName)
+			arcpy.Clip_analysis(targetFCName, polyClipper, ClippedName)
 
 			sumZ = 0
 			countZ = 0

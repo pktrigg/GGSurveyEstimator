@@ -61,13 +61,12 @@ To rapidly access the GEBCO dataset, we have developed a pure python script whic
 **Note: For the GEBCO Bathymetry to be accessible, you MUST download it from the internet**
 
 
-
-
-
-
 # TODO #
-* figure out a way for the user to set the coverage rate of the multibeam so we can auto compute the line spacing from the sounding grid.
+* enter items here...
+
 # DONE
+* remove the need for the user to specify the source polygon feature class.  the user now just selects a feature and is ready to go. Simple!
+* figure out a way for the user to set the coverage rate of the multibeam so we can auto compute the line spacing from the sounding grid.
 * if line spacing is set to -1, compute the mean depth from the standard SSDM SURVEY_SOUNDING_GRID and use this as the line spacing
 * auto compute the heading based on the longest vector in the polygon. trigger this if the user enters -1 for the heading.
 * add UI to specify GEBCO global bathy database.

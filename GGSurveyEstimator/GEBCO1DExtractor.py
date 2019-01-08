@@ -1,7 +1,7 @@
-#name:			GGSurveyEstimator
+#name:			GGGEBCOExtractor
 #created:	    October 2018
 #by:			paul.kennedy@guardiangeomatics.com
-#description:   python module to estimate a marine survey duration from a user selected polygon
+#description:   python module to extract GEBCO 2014 bathymetry from the NetCDF file
 #designed for:  ArcGISPro 2.2.4
 
 # See readme.md for more details
@@ -39,13 +39,13 @@ VERSION = "3.0"
 class Toolbox(object):
 	def __init__(self):
 		"""Define the toolbox (the name of the toolbox is the name of the .pyt file)."""
-		self.label = "GG Survey Estimator Toolbox"
-		self.alias = "GG Survey Estimator Toolbox"
+		self.label = "GG GEBCOExtractor"
+		self.alias = "GG GEBCOExtractor Toolbox"
 
 		# List of tool classes associated with this toolbox
-		self.tools = [SurveyEstimatorTool]
+		self.tools = [GEBCOExtractorTool]
 
-class SurveyEstimatorTool(object):
+class GEBCOExtractorTool(object):
 	def __init__(self):
 		"""Define the tool (tool name is the name of the class)."""
 		self.label = "GG GEBCO Bathymetry To SSDM"
@@ -59,11 +59,51 @@ class SurveyEstimatorTool(object):
 			displayName="GEBCO Bathymetry (GEBCO_2014_1D.nc)",
 			name="GEBCOBathy",
 			datatype="DEFile",
-			parameterType="Optional",
+			parameterType="Required",
 			direction="Input")
-		# param1.value = r"C:\development\python\ArcGISPro\GGSurveyEstimator\GGSurveyEstimator\GEBCO_2014_1D.nc"
+		param0.value = r".\GGSurveyEstimator\GEBCO_2014_1D.nc"
 
-		params = [param0]
+		param1 = arcpy.Parameter(
+			displayName="Decimation Factor(a multiple of the 30 second native interval from GEBCO)",
+			name="Decimation",
+			datatype="Field",
+			parameterType="Required",
+			direction="Input")
+		param1.value = 10
+
+		param2 = arcpy.Parameter(
+			displayName="Top Left Latitude",
+			name="TLLat",
+			datatype="Field",
+			parameterType="Required",
+			direction="Input")
+		param2.value = 10
+
+		param3 = arcpy.Parameter(
+			displayName="Top Left Longitude",
+			name="TLLon",
+			datatype="Field",
+			parameterType="Required",
+			direction="Input")
+		param3.value = 76
+
+		param4 = arcpy.Parameter(
+			displayName="Lower Right Latitude",
+			name="BLLat",
+			datatype="Field",
+			parameterType="Required",
+			direction="Input")
+		param4.value = 8
+
+		param5 = arcpy.Parameter(
+			displayName="Lower Right Longitude",
+			name="BLLon",
+			datatype="Field",
+			parameterType="Required",
+			direction="Input")
+		param5.value = 86
+
+		params = [param0, param1, param2, param3, param4, param5]
 
 		return params
 
@@ -89,8 +129,19 @@ class SurveyEstimatorTool(object):
 
 		wkid				= 4326 # wkid code for wgs84
 		spatialReference	= arcpy.SpatialReference(wkid)
-		inputFile			= r"C:\development\python\ArcGISPro\GGSurveyEstimator\GGSurveyEstimator\GEBCO_2014_1D.nc"
+		inputFile			= parameters[0].valueAsText
+		decimation			= float(parameters[1].valueAsText)
+		TLLat				= float(parameters[2].valueAsText)
+		TLLon				= float(parameters[3].valueAsText)
+		BLLat				= float(parameters[4].valueAsText)
+		BLLon				= float(parameters[5].valueAsText)
+
+		#open the file...
 		gebco				= GEBCOReader(inputFile)
+
+		# show the user something is happening...
+		arcpy.ResetEnvironments()
+		arcpy.AddMessage ("WorkingFolder  : %s " % (arcpy.env.workspace))
 
 		#test to ensure the OUTPUT polyline featureclass exists in the SSDM format + create if not
 		FCName = "Survey_Sounding_Grid" #Official SSDM V2 FC name
@@ -105,7 +156,6 @@ class SurveyEstimatorTool(object):
 		TL = mapExtents.upperLeft
 		BR = mapExtents.lowerRight
 
-
 		ptGeometry = arcpy.PointGeometry(TL, mapExtents.spatialReference)
 		TLprojectedGeometry = ptGeometry.projectAs(spatialReference)
 
@@ -113,18 +163,18 @@ class SurveyEstimatorTool(object):
 		BRprojectedGeometry = ptGeometry.projectAs(spatialReference)
 
 		#with arcpy.da.SearchCursor(input_feature_class, fields_to_work_with) as s_cur:
-		arcpy.AddMessage("Extracting GEBCO data within Map View bounding box: %.3f, %.3f, %.3f, %.3f" %(TLprojectedGeometry.firstPoint.X, TLprojectedGeometry.firstPoint.Y, BRprojectedGeometry.firstPoint.X, BRprojectedGeometry.firstPoint.Y))
-		boundingBox = [[TLprojectedGeometry.firstPoint.X, TLprojectedGeometry.firstPoint.Y], [BRprojectedGeometry.firstPoint.X, BRprojectedGeometry.firstPoint.Y]]
+		#boundingBox = [[TLprojectedGeometry.firstPoint.X, TLprojectedGeometry.firstPoint.Y], [BRprojectedGeometry.firstPoint.X, BRprojectedGeometry.firstPoint.Y]]
 
-		#boundingBox = [[110,-30], [115,-35]] #top left, bottom right.
+		# boundingBox = [[57,23], [97,1]] #top left, bottom right.
 		# boundingBox = [[float(args.x1), float(args.y1)], [float(args.x2), float(args.y2)]]
-		step = 1
-		gebco.loadBoundingBoxDepths(boundingBox, step)
+		boundingBox = [[TLLon, TLLat], [BLLon, BLLat]]
+		arcpy.AddMessage("Extracting GEBCO data within Map View bounding box: %.3f, %.3f, %.3f, %.3f" %(boundingBox[0][0], boundingBox[0][1], boundingBox[1][0], boundingBox[1][1], ))
+
+		gebco.loadBoundingBoxDepths(boundingBox, decimation)
 		# gebco.exportDepthsToCSV(args.outputFile)
 		gebco.DepthsToFeatureClass(FCName)
 
 		return
-
 
 
 def main():
@@ -216,10 +266,10 @@ class GEBCOReader:
 		'''load a bounding box from the GEBCO dataset into a numpy array so we can interpolate and access the depths with ease. Bounding box is top left and bottom right in the format:[[x1,y1,[x2,y2]]'''
 
 		#add a couple of extra grid nodes to ensure we have good coverage.
-		boundingBox[0][0] -= self.spacing[0] * 5
-		boundingBox[0][1] += self.spacing[1] * 5
-		boundingBox[1][0] += self.spacing[0] * 5
-		boundingBox[1][1] -= self.spacing[1] * 5
+		#boundingBox[0][0] -= self.spacing[0] * 5
+		#boundingBox[0][1] += self.spacing[1] * 5
+		#boundingBox[1][0] += self.spacing[0] * 5
+		#boundingBox[1][1] -= self.spacing[1] * 5
 
 		self.latitude = np.arange(boundingBox[1][1], boundingBox[0][1], self.spacing[1] * stepSize)
 		self.longitude = np.arange(boundingBox[0][0], boundingBox[1][0], self.spacing[0] * stepSize)
