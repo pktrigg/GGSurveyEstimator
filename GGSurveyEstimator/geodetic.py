@@ -102,6 +102,13 @@ def calculateGridPositionFromRangeBearing(easting, northing, distance, bearing):
 
     return [xfinal, yfinal]
 
+def normalize360(bearing):
+	orientation = bearing % 360
+
+	if orientation < 0:
+		orientation += 360
+
+	return orientation
 
 def calculateRangeBearingFromGeographicals2(longitude1, latitude1,  longitude2,  latitude2 ) :
     # WGS84

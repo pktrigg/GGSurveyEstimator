@@ -65,6 +65,8 @@ To rapidly access the GEBCO dataset, we have developed a pure python script whic
 * enter items here...
 
 # DONE
+* print the stats summary for the current polygon in addition to the entire survey.
+* fixed bug in computation of the optimal line heading
 * remove the need for the user to specify the source polygon feature class.  the user now just selects a feature and is ready to go. Simple!
 * figure out a way for the user to set the coverage rate of the multibeam so we can auto compute the line spacing from the sounding grid.
 * if line spacing is set to -1, compute the mean depth from the standard SSDM SURVEY_SOUNDING_GRID and use this as the line spacing

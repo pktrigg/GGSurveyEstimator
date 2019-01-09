@@ -76,7 +76,7 @@ class SurveyEstimatorTool(object):
 			datatype="Field",
 			parameterType="Required",
 			direction="Input")
-		param4.value = "4.5"
+		param4.value = "3.5 "
 
 		param5 = arcpy.Parameter(
 			displayName="Turn Duration in Minutes. This is used to compute the duration of the survey",
@@ -237,7 +237,8 @@ class surveyEstimator:
 		# now run the computation on the CROSS lines...
 		if crossLineMultiplier > 0:
 			arcpy.AddMessage ("Computing Cross Lines...")
-			self.computeSurveyLines (polygonCentroidX, polygonCentroidY, lineSpacing*crossLineMultiplier, lineHeading+90, polygonDiagonalLength, polygonIsGeographic, spatialReference, linePrefix+"_X", projectName, TMPName)
+			hdg = geodetic.normalize360(lineHeading+90)
+			self.computeSurveyLines (polygonCentroidX, polygonCentroidY, lineSpacing*crossLineMultiplier, hdg, polygonDiagonalLength, polygonIsGeographic, spatialReference, linePrefix+"_X", projectName, TMPName)
 
 		#clip the lines from the TMP to the Clipped FC
 		arcpy.AddMessage ("Clipping to polygon...")
@@ -254,7 +255,7 @@ class surveyEstimator:
 		self.addResultsToMap(targetFCName)
 
 		#now export the features to a CSV...
-		self.FC2CSV(targetFCName, vesselSpeedInKnots, turnDuration, lineSpacing, polygonIsGeographic)
+		self.FC2CSV(targetFCName, vesselSpeedInKnots, turnDuration, lineSpacing, polygonIsGeographic, linePrefix)
 		return
 
 	def	addResultsToMap(self, targetFCName):
@@ -522,7 +523,7 @@ class surveyEstimator:
 	def get_username(self):
 		return os.getenv('username')
 
-	def FC2CSV(self, targetFCName, vesselSpeedInKnots, turnDuration, lineSpacing, polygonIsGeographic):
+	def FC2CSV(self, targetFCName, vesselSpeedInKnots, turnDuration, lineSpacing, polygonIsGeographic, linePrefix):
 		'''read through the featureclass and convert the file to a CSV so we can open it in Excel and complete the survey estimation process'''
 		csvName = os.path.dirname(os.path.dirname(arcpy.env.workspace)) + "\\" + targetFCName + ".csv"
 		csvName = createOutputFileName(csvName)
@@ -531,11 +532,16 @@ class surveyEstimator:
 		msg = "LineName,LineSpacing,StartX,StartY,EndX,EndY,Length(m),Heading,Speed(kts),Speed(m/s),Duration(h),TurnDuration(h),TotalDuration(h)\n"
 		file.write(msg)
 
+		currentPolygonDuration	= 0
+		currentPolygonLineLength= 0
+		currentPolygonLineCount	= 0
+
 		entireSurveyDuration	= 0
 		entireSurveyLineLength	= 0
 		entireSurveyLineCount	= 0
+
 		speed = vesselSpeedInKnots *(1852/3600) #convert from knots to metres/second
-		sCursor = arcpy.da.SearchCursor(targetFCName, ["SHAPE@", "LINE_NAME", "LINE_DIRECTION", "REMARKS"])
+		sCursor = arcpy.da.SearchCursor(targetFCName, ["SHAPE@", "LINE_NAME", "LINE_DIRECTION", "REMARKS", "LINE_PREFIX"])
 		for row in sCursor:
 			if polygonIsGeographic:
 				lineLength = geodetic.degreesToMetres(float(row[0].length))
@@ -547,17 +553,33 @@ class surveyEstimator:
 			entireSurveyDuration += totalDuration
 			entireSurveyLineLength += lineLength
 			entireSurveyLineCount += 1
+
+			prefix = row[4]
+			if linePrefix in prefix:
+				currentPolygonDuration	+= duration + turnDuration
+				currentPolygonLineLength += lineLength
+				currentPolygonLineCount	+= 1
+
 			lineSpacing = float(row[3])
 			msg = str("%s,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f\n" % (row[1], lineSpacing, row[0].firstPoint.X, row[0].firstPoint.Y, row[0].lastPoint.X, row[0].lastPoint.Y, lineLength, row[2], vesselSpeedInKnots, vesselSpeedInKnots*(1852/3600), duration, turnDuration, totalDuration))
 			file.write(msg)
 
 		file.close()
 
+		#report the CURRENT survey stats...
+		arcpy.AddMessage("##########################")
+		arcpy.AddMessage("Current Polygon Line Count: %d Lines" % (currentPolygonLineCount))
+		arcpy.AddMessage("Current Polygon Line Length : %.2f Km" % (currentPolygonLineLength/1000))
+		arcpy.AddMessage("Current Polygon Duration: %.2f Hours" % (currentPolygonDuration))
+		arcpy.AddMessage("Current Polygon Duration: %.2f Days" % (currentPolygonDuration/24))
+		arcpy.AddMessage("##########################")
+
 		#report the entire survey stats...
 		arcpy.AddMessage("Entire Survey Line Count: %d Lines" % (entireSurveyLineCount))
 		arcpy.AddMessage("Entire Survey Line Length : %.2f Km" % (entireSurveyLineLength/1000))
 		arcpy.AddMessage("Entire Survey Duration: %.2f Hours" % (entireSurveyDuration))
 		arcpy.AddMessage("Entire Survey Duration: %.2f Days" % (entireSurveyDuration/24))
+		arcpy.AddMessage("##########################")
 
 
 		#now open the file for the user...
@@ -587,6 +609,7 @@ class surveyEstimator:
 					rng, brg = geodetic.calculateRangeBearingFromCoordinates(xc[count-1], yc[count-1], xc[count], yc[count], polygonIsGeographic)
 					if rng > maxRange:
 						optimalBearing = brg
+						maxRange = rng
 					#ranges.append([rng,brg])
 			arcpy.AddMessage("*******************")
 			arcpy.AddMessage("Optimal Bearing is %.2f" % (optimalBearing))
