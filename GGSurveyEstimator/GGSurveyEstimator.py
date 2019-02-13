@@ -237,7 +237,7 @@ class surveyEstimator:
 		# now run the computation on the CROSS lines...
 		if crossLineMultiplier > 0:
 			arcpy.AddMessage ("Computing Cross Lines...")
-			hdg = geodetic.normalize360(lineHeading+90)
+			hdg = self.normalize360(lineHeading+90)
 			self.computeSurveyLines (polygonCentroidX, polygonCentroidY, lineSpacing*crossLineMultiplier, hdg, polygonDiagonalLength, polygonIsGeographic, spatialReference, linePrefix+"_X", projectName, TMPName)
 
 		#clip the lines from the TMP to the Clipped FC
@@ -315,8 +315,10 @@ class surveyEstimator:
 		#do the Starboard Lines
 		offset = lineSpacing
 		while (offset < polygonDiagonalLength):
-			#newCentreX, newCentreY = self.CalcGridCoord(polygonCentroidX, polygonCentroidY, lineHeading - 90.0, offset)
-			newCentreX, newCentreY = geodetic.calculateCoordinateFromRangeBearing(polygonCentroidX, polygonCentroidY, offset, lineHeading - 90.0, polygonIsGeographic)
+			polygonCentroid = arcpy.PointGeometry(arcpy.Point(polygonCentroidX, polygonCentroidY), spatialReference)
+			newCentre = polygonCentroid.pointFromAngleAndDistance(lineHeading - 90.0, offset, "GEODESIC")
+			newCentreX = newCentre.centroid.X
+			newCentreY = newCentre.centroid.Y
 			x2, y2, x3, y3 = self.CalcLineFromPoint(newCentreX, newCentreY, lineHeading, polygonDiagonalLength, polygonIsGeographic)
 			lineName = linePrefix + "_S" + str("%.1f" %(offset))
 			polyLine = self.addPolyline(x2, y2, x3, y3, targetFCName, spatialReference, linePrefix, lineName, float(lineHeading), projectName, lineSpacing)
@@ -328,8 +330,10 @@ class surveyEstimator:
 		#do the PORT Lines
 		offset = -lineSpacing
 		while (offset > -polygonDiagonalLength):
-			#newCentreX, newCentreY = self.CalcGridCoord(polygonCentroidX, polygonCentroidY, lineHeading - 90.0, offset)
-			newCentreX, newCentreY = geodetic.calculateCoordinateFromRangeBearing(polygonCentroidX, polygonCentroidY, offset, lineHeading - 90.0, polygonIsGeographic)
+			polygonCentroid = arcpy.PointGeometry(arcpy.Point(polygonCentroidX, polygonCentroidY), spatialReference)
+			newCentre = polygonCentroid.pointFromAngleAndDistance(lineHeading - 90.0, offset, "GEODESIC")
+			newCentreX = newCentre.centroid.X
+			newCentreY = newCentre.centroid.Y
 			x2, y2, x3, y3 = self.CalcLineFromPoint(newCentreX, newCentreY, lineHeading, polygonDiagonalLength, polygonIsGeographic)
 			lineName = linePrefix + "_P" + str("%.1f" %(offset))
 			polyLine = self.addPolyline(x2, y2, x3, y3, targetFCName, spatialReference, linePrefix, lineName, float(lineHeading), projectName, lineSpacing)
@@ -505,6 +509,7 @@ class surveyEstimator:
 		return polyline
 
 	def CalcLineFromPoint(self, centreX, centreY, bearing,  rng, polygonIsGeographic):
+		pointFromAngleAndDistance
 		x2, y2 = geodetic.calculateCoordinateFromRangeBearing(centreX, centreY, rng, bearing, polygonIsGeographic)
 		x3, y3 = geodetic.calculateCoordinateFromRangeBearing(centreX, centreY, rng*-1.0, bearing, polygonIsGeographic)
 		return (x2, y2, x3, y3)
@@ -688,3 +693,11 @@ def createOutputFileName(path, ext=""):
 			index	+= 1
 
 	return os.path.join(dir, candidate)
+
+def normalize360(bearing):
+	orientation = bearing % 360
+
+	if orientation < 0:
+		orientation += 360
+
+	return orientation
