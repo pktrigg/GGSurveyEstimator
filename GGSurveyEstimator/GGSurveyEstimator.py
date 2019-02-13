@@ -218,7 +218,7 @@ class surveyEstimator:
 
 		if polygonIsGeographic:
 			arcpy.AddMessage ("Layer is Geographicals...")
-			polygonDiagonalLength = geodetic.degreesToMetres(polygonDiagonalLength)
+			polygonDiagonalLength = polygonDiagonalLength * (1852*60)
 			arcpy.AddMessage("Diagonal Length of input polygon: %.3f" % (polygonDiagonalLength))
 			# numlines = math.ceil(polygonDiagonalLength / geodetic.metresToDegrees(float(lineSpacing)))
 			numlines = math.ceil(polygonDiagonalLength / float(lineSpacing))
@@ -237,7 +237,7 @@ class surveyEstimator:
 		# now run the computation on the CROSS lines...
 		if crossLineMultiplier > 0:
 			arcpy.AddMessage ("Computing Cross Lines...")
-			hdg = geodetic.normalize360(lineHeading+90)
+			hdg = self.normalize360(lineHeading+90)
 			self.computeSurveyLines (polygonCentroidX, polygonCentroidY, lineSpacing*crossLineMultiplier, hdg, polygonDiagonalLength, polygonIsGeographic, spatialReference, linePrefix+"_X", projectName, TMPName)
 
 		#clip the lines from the TMP to the Clipped FC
@@ -306,7 +306,7 @@ class surveyEstimator:
 		''' compute a survey line plan and add it to the featureclass'''
 		lineCount = 0
 		#do the CENTRELINE
-		x2, y2, x3, y3 = self.CalcLineFromPoint(polygonCentroidX, polygonCentroidY, lineHeading, polygonDiagonalLength, polygonIsGeographic)
+		x2, y2, x3, y3 = self.CalcLineFromPoint(polygonCentroidX, polygonCentroidY, lineHeading, polygonDiagonalLength, polygonIsGeographic, spatialReference)
 		lineName = linePrefix + "_Centreline"
 		polyLine = self.addPolyline(x2, y2, x3, y3, targetFCName, spatialReference, linePrefix, lineName, float(lineHeading), projectName, lineSpacing)
 		arcpy.AddMessage ("Centreline created")
@@ -315,9 +315,11 @@ class surveyEstimator:
 		#do the Starboard Lines
 		offset = lineSpacing
 		while (offset < polygonDiagonalLength):
-			#newCentreX, newCentreY = self.CalcGridCoord(polygonCentroidX, polygonCentroidY, lineHeading - 90.0, offset)
-			newCentreX, newCentreY = geodetic.calculateCoordinateFromRangeBearing(polygonCentroidX, polygonCentroidY, offset, lineHeading - 90.0, polygonIsGeographic)
-			x2, y2, x3, y3 = self.CalcLineFromPoint(newCentreX, newCentreY, lineHeading, polygonDiagonalLength, polygonIsGeographic)
+			polygonCentroid = arcpy.PointGeometry(arcpy.Point(polygonCentroidX, polygonCentroidY), spatialReference)
+			newCentre = polygonCentroid.pointFromAngleAndDistance(lineHeading - 90.0, offset, "GEODESIC")
+			newCentreX = newCentre.centroid.X
+			newCentreY = newCentre.centroid.Y
+			x2, y2, x3, y3 = self.CalcLineFromPoint(newCentreX, newCentreY, lineHeading, polygonDiagonalLength, polygonIsGeographic, spatialReference)
 			lineName = linePrefix + "_S" + str("%.1f" %(offset))
 			polyLine = self.addPolyline(x2, y2, x3, y3, targetFCName, spatialReference, linePrefix, lineName, float(lineHeading), projectName, lineSpacing)
 			offset = offset + lineSpacing
@@ -328,9 +330,11 @@ class surveyEstimator:
 		#do the PORT Lines
 		offset = -lineSpacing
 		while (offset > -polygonDiagonalLength):
-			#newCentreX, newCentreY = self.CalcGridCoord(polygonCentroidX, polygonCentroidY, lineHeading - 90.0, offset)
-			newCentreX, newCentreY = geodetic.calculateCoordinateFromRangeBearing(polygonCentroidX, polygonCentroidY, offset, lineHeading - 90.0, polygonIsGeographic)
-			x2, y2, x3, y3 = self.CalcLineFromPoint(newCentreX, newCentreY, lineHeading, polygonDiagonalLength, polygonIsGeographic)
+			polygonCentroid = arcpy.PointGeometry(arcpy.Point(polygonCentroidX, polygonCentroidY), spatialReference)
+			newCentre = polygonCentroid.pointFromAngleAndDistance(lineHeading - 90.0, offset, "GEODESIC")
+			newCentreX = newCentre.centroid.X
+			newCentreY = newCentre.centroid.Y
+			x2, y2, x3, y3 = self.CalcLineFromPoint(newCentreX, newCentreY, lineHeading, polygonDiagonalLength, polygonIsGeographic, spatialReference)
 			lineName = linePrefix + "_P" + str("%.1f" %(offset))
 			polyLine = self.addPolyline(x2, y2, x3, y3, targetFCName, spatialReference, linePrefix, lineName, float(lineHeading), projectName, lineSpacing)
 			offset = offset - lineSpacing
@@ -504,10 +508,11 @@ class surveyEstimator:
 		cursor.insertRow((polyline, linePrefix[:20], lineName[:20], lineDirection, projectName[:250], userName[:50], preparedDate, str(layerComment) ))
 		return polyline
 
-	def CalcLineFromPoint(self, centreX, centreY, bearing,  rng, polygonIsGeographic):
-		x2, y2 = geodetic.calculateCoordinateFromRangeBearing(centreX, centreY, rng, bearing, polygonIsGeographic)
-		x3, y3 = geodetic.calculateCoordinateFromRangeBearing(centreX, centreY, rng*-1.0, bearing, polygonIsGeographic)
-		return (x2, y2, x3, y3)
+	def CalcLineFromPoint(self, centreX, centreY, bearing,  rng, polygonIsGeographic,spatialReference):
+		start_point = arcpy.PointGeometry(arcpy.Point(centreX, centreY), spatialReference)
+		forward_point = start_point.pointFromAngleAndDistance(bearing, rng, "GEODESIC")
+		reverse_point = start_point.pointFromAngleAndDistance(bearing, rng*-1.0, "GEODESIC")
+		return (forward_point.centroid.X, forward_point.centroid.Y, reverse_point.centroid.X, reverse_point.centroid.Y)
 
 	def CalcGridCoord(self, x1, y1, bearing, rng):
 		x2 = x1 + (math.cos(math.radians(270 - bearing)) * rng)
@@ -544,7 +549,7 @@ class surveyEstimator:
 		sCursor = arcpy.da.SearchCursor(targetFCName, ["SHAPE@", "LINE_NAME", "LINE_DIRECTION", "REMARKS", "LINE_PREFIX"])
 		for row in sCursor:
 			if polygonIsGeographic:
-				lineLength = geodetic.degreesToMetres(float(row[0].length))
+				lineLength = float(row[0].length) * (1852*60)
 			else:
 				lineLength = float(row[0].length)
 
@@ -606,7 +611,9 @@ class surveyEstimator:
 			optimalBearing = 0
 			for count, item in enumerate(xc, start=1 ):
 				if count < len(xc):
-					rng, brg = geodetic.calculateRangeBearingFromCoordinates(xc[count-1], yc[count-1], xc[count], yc[count], polygonIsGeographic)
+					first_point = arcpy.PointGeometry(arcpy.Point(xc[count-1], yc[count-1]), spatialReference)
+					second_point = arcpy.PointGeometry(arcpy.Point(xc[count], yc[count]), spatialRefernce)
+					rng, brg = first_point.angleAndDistanceTo(second_point, "GEODESIC")
 					if rng > maxRange:
 						optimalBearing = brg
 						maxRange = rng
@@ -688,3 +695,11 @@ def createOutputFileName(path, ext=""):
 			index	+= 1
 
 	return os.path.join(dir, candidate)
+
+def normalize360(bearing):
+	orientation = bearing % 360
+
+	if orientation < 0:
+		orientation += 360
+
+	return orientation
