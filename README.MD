@@ -65,6 +65,8 @@ To rapidly access the GEBCO dataset, we have developed a pure python script whic
 * enter items here...
 
 # DONE
+* remember the previous settings
+* catch bug if multiple layers in the map have identical names.
 * print the stats summary for the current polygon in addition to the entire survey.
 * fixed bug in computation of the optimal line heading
 * remove the need for the user to specify the source polygon feature class.  the user now just selects a feature and is ready to go. Simple!

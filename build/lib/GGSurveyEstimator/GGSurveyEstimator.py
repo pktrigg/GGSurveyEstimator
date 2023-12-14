@@ -161,7 +161,8 @@ class surveyEstimator:
         return
 
     def __str__(self):
-        return pprint.pformat(vars(self))
+        return 
+		#return pprint.pformat(vars(self))
 
     def compute(self, parameters):
         '''computes a survey line plans using user-specified parameters and a user selected polygon in ArcGISPro'''
@@ -232,6 +233,16 @@ class surveyEstimator:
 
             arcpy.AddMessage("Creating Survey Plan...")
 
+
+#			spatial_reference = arcpy.SpatialReference(wkid)
+
+#fields_to_work_with = ['SHAPE@']
+
+#with arcpy.da.SearchCursor(input_feature_class,
+#                           fields_to_work_with) as s_cur:
+#    for row in s_cur:
+#        point_in_wgs84 = row[0].projectAs(spatial_reference)
+#        print point_in_wgs84.firstPoint.X, point_in_wgs84.firstPoint.Y
 
             if polygonIsGeographic:
                 arcpy.AddMessage ("Layer is Geographicals...")

@@ -28,11 +28,16 @@ from datetime import datetime
 from datetime import timedelta
 import os
 
+sys.path.append('c://infinitytool//ggtool//shared')
+
+import geodetic
+# import pyproj
+
+
 from argparse import ArgumentParser
 import numpy as np
 from netCDF4 import Dataset
 #from scipy.interpolate import RectBivariateSpline
-
 
 VERSION = "3.0"
 
@@ -171,7 +176,9 @@ class GEBCOExtractorTool(object):
 		arcpy.AddMessage("Extracting GEBCO data within Map View bounding box: %.3f, %.3f, %.3f, %.3f" %(boundingBox[0][0], boundingBox[0][1], boundingBox[1][0], boundingBox[1][1], ))
 
 		gebco.loadBoundingBoxDepths(boundingBox, decimation)
-		# gebco.exportDepthsToCSV(args.outputFile)
+
+		outputFile = "c:/temp/gebcoExtraction.xyz"
+		# gebco.exportDepthsToCSV(outputFile)
 		gebco.DepthsToFeatureClass(FCName)
 
 		return
@@ -198,6 +205,8 @@ def main():
 	# boundingBox = [[110,-30], [115,-35]] #top left, bottom right.
 	boundingBox = [[float(args.x1), float(args.y1)], [float(args.x2), float(args.y2)]]
 	gebco.loadBoundingBoxDepths(boundingBox, float(args.step))
+
+	args.outputFile = "c:/temp/gebcoExtraction.xyz"
 	gebco.exportDepthsToCSV(args.outputFile)
 
 class GEBCOReader:
@@ -306,18 +315,39 @@ class GEBCOReader:
 			row += 1
 		return
 
-	def exportDepthsToCSV(self, fileName):
-		print("Writing data to:%s..." % (fileName))
-		f = open(fileName, "w")
-		row = 0
-		for lat in np.nditer(self.latitude):
-			col = 0
-			for lon in np.nditer(self.longitude):
-				f.write("%.8f, %.8f, %.1f\n" % (lon, lat, self.depths[row][col]))
-				col += 1
-			row += 1
-		f.close()
-		return
+	# def exportDepthsToCSV(self, fileName):
+	# 	projection = None
+	# 	arcpy.AddMessage ("Writing data to:%s..." % (fileName))
+	# 	# projection = self.loadProj(32726)
+
+	# 	#load the python proj projection object library if the user has requested it
+	# 	# geo = geodetic.geodesy(args.epsg)
+
+	# 	f = open(fileName, "w")
+	# 	row = 0
+	# 	for lat in np.nditer(self.latitude):
+	# 		col = 0
+	# 		for lon in np.nditer(self.longitude):
+	# 			if projection is not None:
+	# 				x,y = geo.convertToGrid(longitude, latitude)
+
+	# 				x,y = projection(float(lon),float(lat))
+	# 				f.write("%.8f,%.8f,%.1f\n" % (x, y, self.depths[row][col]))
+	# 			else:
+	# 				f.write("%.8f,%.8f,%.1f\n" % (lon, lat, self.depths[row][col]))
+	# 			col += 1
+	# 		row += 1
+	# 	f.close()
+	# 	return
+
+	def loadProj(self, EPSGCode):
+		'''load a pyproj object using the supplied code'''
+		# wgs84=pyproj.Proj("+init=EPSG:4326") # LatLon with WGS84 datum used by GPS units and Google Earth
+		try:
+			projection = pyproj.Proj("+init=EPSG:" + str(EPSGCode))
+		except:
+			return None
+		return projection
 
 	def coordinate2Index(self, latitude, longitude):
 		'''convert a latitude/longitude into the 1D index used to access the GEBCO bathymetry'''
